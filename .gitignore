@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+.vivado/
+.test-work/
+.vscode-test/
+*.vsix
+*.log
+*.jou
+*.pb
+.Xil/
+xsim.dir/

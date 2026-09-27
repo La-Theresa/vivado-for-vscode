@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Vivado Project",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "name", "part", "top", "sources"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+    "part": { "type": "string", "minLength": 1 },
+    "top": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_$]*$" },
+    "sources": { "$ref": "#/definitions/paths" },
+    "constraints": { "$ref": "#/definitions/paths" },
+    "ioConstraints": { "type": "string", "pattern": "\\.[xX][dD][cC]$", "description": "I/O Planning XDC, automatically included and applied after other constraints." },
+    "simulation": { "$ref": "#/definitions/paths" },
+    "exclude": { "$ref": "#/definitions/paths" },
+    "includeDirs": { "$ref": "#/definitions/paths" },
+    "defines": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(=.*)?$" }, "uniqueItems": true },
+    "simulationTop": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_$]*$" },
+    "simulationRunTime": { "type": "string", "default": "1 us", "pattern": "^\\s*(all|\\d+(\\.\\d+)?\\s*(s|ms|us|ns|ps|fs))\\s*$", "description": "Simulation duration, such as 1 us or all. Overrides vivado.sim.runTime." }
+  },
+  "definitions": { "paths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true } }
+}

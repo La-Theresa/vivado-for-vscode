@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "counter",
+  "part": "xc7a35tcsg324-1",
+  "top": "top",
+  "sources": ["rtl/sub.v", "rtl/top.v"],
+  "constraints": ["constraints/pins.xdc"],
+  "simulation": ["sim/tb.v"],
+  "simulationTop": "tb",
+  "simulationRunTime": "1 us",
+  "includeDirs": [],
+  "defines": []
+}

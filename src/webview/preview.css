@@ -1,0 +1,86 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; letter-spacing: 0; }
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { font: 13px var(--vscode-font-family, system-ui); color: var(--vscode-foreground, #ddd); background: var(--vscode-editor-background, #1f1f1f); }
+#app { display: flex; flex-direction: column; }
+.toolbar, .options { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border, #444); flex: 0 0 auto; min-width: 0; }
+.toolbar { min-height: 42px; flex-wrap: wrap; }
+.title { font-size: 13px; font-weight: 600; flex: 1 1 130px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.controls { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: 0 0 auto; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 4px; border: 0; border-radius: 3px; background: transparent; flex: 0 0 auto; }
+.icon-button:hover { background: var(--vscode-toolbar-hoverBackground, #ffffff20); }
+:focus-visible { outline: 1px solid var(--vscode-focusBorder, #389eff); outline-offset: -1px; }
+.options { flex-wrap: wrap; min-height: 42px; }
+.search { display: flex; align-items: center; gap: 6px; flex: 1 1 140px; min-width: 90px; padding: 0 6px; height: 28px; background: var(--vscode-input-background, #313131); color: var(--vscode-input-foreground, #eee); border: 1px solid var(--vscode-input-border, transparent); }
+.search input { width: 100%; min-width: 0; color: inherit; background: transparent; padding: 4px 0; font: inherit; border: 0; }
+.search svg { flex-shrink: 0; }
+select { height: 28px; max-width: 100%; font: inherit; color: var(--vscode-dropdown-foreground, #eee); background: var(--vscode-dropdown-background, #313131); border: 1px solid var(--vscode-dropdown-border, #555); padding: 2px 6px; }
+.cursor-value, .circuit-detail { font: 12px var(--vscode-editor-font-family, monospace); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.circuit-detail { flex: 1 1 180px; }
+main { flex: 1 1 auto; min-height: 0; min-width: 0; }
+.status { padding: 6px 10px; border-top: 1px solid var(--vscode-panel-border, #444); color: var(--vscode-descriptionForeground, #aaa); font-size: 11px; overflow-wrap: anywhere; flex: 0 0 auto; }
+.status.stale { color: var(--vscode-editorWarning-foreground, #e2b34b); }
+.waveform { display: grid; grid-template-columns: minmax(110px, 30%) minmax(0, 1fr); }
+.signal-labels { overflow: hidden; border-right: 1px solid var(--vscode-panel-border, #444); }
+.signal-heading { height: 34px; padding: 9px 8px; font-size: 11px; color: var(--vscode-descriptionForeground, #aaa); white-space: nowrap; background: var(--vscode-sideBar-background, #252526); }
+.signal-row { display: grid; grid-template-columns: 16px minmax(0, 1fr); grid-template-rows: 17px 15px; gap: 0 5px; height: 34px; padding: 1px 7px; border-bottom: 1px solid var(--vscode-panel-border, #444); font-size: 11px; }
+.signal-row input { width: 12px; height: 12px; margin: 7px 0; grid-row: 1 / 3; accent-color: var(--vscode-checkbox-selectBackground, #358bdd); }
+.signal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signal-value { overflow: hidden; text-overflow: ellipsis; color: var(--vscode-debugTokenExpression-number, #b5cea8); white-space: nowrap; }
+.wave-scroll { overflow: auto; position: relative; }
+.wave-scroll > svg { display: block; user-select: none; }
+.ruler-background { fill: var(--vscode-sideBar-background, #252526); }
+.grid-line, .row-line { stroke: var(--vscode-panel-border, #444); stroke-width: 0.7; }
+.grid-line { stroke-dasharray: 2 4; }
+.axis-label, .bus-label { font: 11px var(--vscode-editor-font-family, monospace); fill: var(--vscode-foreground, #ddd); }
+.logic-wave { fill: none; stroke: var(--vscode-charts-green, #62c990); stroke-width: 1.5; }
+.bus-wave { fill: none; stroke: var(--vscode-charts-blue, #5ba6e5); stroke-width: 1.3; }
+.unknown-wave { fill: none; stroke: var(--vscode-errorForeground, #f47777); stroke-width: 2; stroke-dasharray: 3 2; }
+.z-wave { fill: none; stroke: var(--vscode-charts-yellow, #dbbd5e); stroke-width: 2; stroke-dasharray: 4 3; }
+.cursor-line { stroke: var(--vscode-charts-yellow, #dbbd5e); stroke-width: 1; pointer-events: none; }
+.schematic { position: relative; overflow: hidden; }
+.schematic > svg { display: block; user-select: none; cursor: grab; touch-action: none; }
+.schematic > svg:active { cursor: grabbing; }
+.circuit-node { cursor: pointer; }
+.symbol-body { fill: var(--vscode-editorWidget-background, #292929); stroke: var(--vscode-charts-blue, #5ba6e5); stroke-width: 1.7; }
+.symbol-line { fill: none; stroke: var(--vscode-charts-blue, #5ba6e5); stroke-width: 1.7; }
+.symbol-hitbox { fill: transparent; stroke: none; }
+.port-node .symbol-body, .port-node .symbol-line { stroke: var(--vscode-charts-green, #62c990); }
+.circuit-node.selected .symbol-body, .circuit-node.matched .symbol-body,
+.circuit-node.selected .symbol-line, .circuit-node.matched .symbol-line { stroke: var(--vscode-charts-yellow, #dbbd5e); stroke-width: 2.5; }
+.cell-name { font: 12px var(--vscode-editor-font-family, monospace); fill: var(--vscode-foreground, #ddd); }
+.cell-type, .pin-name { font: 10px var(--vscode-editor-font-family, monospace); fill: var(--vscode-descriptionForeground, #aaa); }
+.pin { fill: var(--vscode-charts-green, #62c990); }
+.circuit-edge { stroke: var(--vscode-descriptionForeground, #aaa); stroke-width: 1.2; fill: none; }
+.circuit-edge.connected { stroke: var(--vscode-charts-yellow, #dbbd5e); stroke-width: 2.5; }
+.message { padding: 18px; overflow-wrap: anywhere; }
+.error { color: var(--vscode-errorForeground, #f47777); }
+.warning { color: var(--vscode-editorWarning-foreground, #e2b34b); }
+button:disabled { cursor: default; opacity: 0.45; }
+.ioPlanning { overflow: auto; }
+.device-label { font: 12px var(--vscode-editor-font-family, monospace); color: var(--vscode-descriptionForeground, #aaa); overflow-wrap: anywhere; }
+.io-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12px; text-align: left; }
+.io-table th, .io-table td { height: 38px; padding: 4px 10px; border-bottom: 1px solid var(--vscode-panel-border, #444); white-space: nowrap; }
+.io-table thead th { position: sticky; top: 0; z-index: 1; background: var(--vscode-sideBar-background, #252526); color: var(--vscode-descriptionForeground, #aaa); font-weight: 600; height: 32px; }
+.io-table tbody th { font: 12px var(--vscode-editor-font-family, monospace); font-weight: 500; }
+.io-table .port-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.io-table tr.selected-row { background: var(--vscode-list-inactiveSelectionBackground, #343434); }
+.pin-controls { display: flex; align-items: center; gap: 4px; width: 142px; }
+.pin-input, .pin-search { color: var(--vscode-input-foreground, #eee); background: var(--vscode-input-background, #313131); border: 1px solid var(--vscode-input-border, #555); border-radius: 0; font: 12px var(--vscode-editor-font-family, monospace); height: 28px; padding: 4px 6px; min-width: 0; }
+.pin-input { width: 110px; }
+.pin-input[aria-invalid=true] { border-color: var(--vscode-inputValidation-errorBorder, #e05d5d); }
+.io-table select { width: 165px; }
+.pin-function { color: var(--vscode-descriptionForeground, #aaa); font: 11px var(--vscode-editor-font-family, monospace); }
+.io-validation { max-height: 108px; overflow: auto; }
+.io-summary { margin-top: 4px; color: var(--vscode-foreground, #ddd); }
+.io-message:empty, .io-validation:empty { display: none; }
+.io-board-warning { margin-top: 4px; }
+.pin-picker { padding: 0; width: min(760px, calc(100vw - 24px)); height: min(600px, calc(100vh - 40px)); max-width: none; max-height: none; border: 1px solid var(--vscode-panel-border, #555); border-radius: 4px; color: inherit; background: var(--vscode-editor-background, #1f1f1f); }
+.pin-picker[open] { display: flex; flex-direction: column; }
+.pin-picker::backdrop { background: #0006; }
+.pin-picker .pin-search { flex: 1 1 130px; }
+.pin-list { min-height: 0; overflow: auto; flex: 1 1 auto; }
+.pin-choice { border: 0; padding: 3px 6px; background: transparent; color: var(--vscode-textLink-foreground, #6eb9f7); text-decoration: underline; font: inherit; }
+.pin-choice:not(:disabled):hover { background: var(--vscode-toolbar-hoverBackground, #ffffff20); }
+@media (max-width: 420px) { .waveform { grid-template-columns: 110px minmax(0, 1fr); } .cursor-value { flex-basis: 100%; } }

@@ -1,0 +1,447 @@
+{
+  "name": "vivado-for-vscode",
+  "displayName": "Vivado for VS Code",
+  "description": "Vivado projects, live Verilog diagnostics, builds, simulation and hardware programming.",
+  "version": "0.3.1",
+  "publisher": "local-vivado",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "vivado",
+    "verilog",
+    "systemverilog",
+    "fpga",
+    "xilinx"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:vivado-project.json",
+    "onLanguage:verilog",
+    "onLanguage:systemverilog",
+    "onLanguage:xdc"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "extensionPack": [
+    "mshr-h.veriloghdl"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Vivado executes project Tcl and HDL tools on your computer."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Vivado requires a local filesystem."
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "check": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:vivado": "tsx tests/vivado-smoke.ts",
+    "test:edges": "tsx tests/vivado-edgecases.ts",
+    "test:project": "tsx tests/vivado-project.ts",
+    "test:extension": "npm run compile && tsx tests/run-extension.ts",
+    "test:preview": "npm run compile && tsx tests/preview-browser.ts",
+    "test:io": "tsx tests/vivado-io.ts",
+    "package": "npm run check && vsce package --no-dependencies --allow-missing-repository",
+    "vscode:prepublish": "npm run compile"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "vivado.detect",
+        "title": "Vivado: Detect / Select Installation"
+      },
+      {
+        "command": "vivado.createProject",
+        "title": "Vivado: New Project",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "vivado.importProject",
+        "title": "Vivado: Import XPR Project"
+      },
+      {
+        "command": "vivado.openGui",
+        "title": "Vivado: Open Project in Vivado GUI"
+      },
+      {
+        "command": "vivado.refresh",
+        "title": "Vivado: Refresh Project",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vivado.selectPart",
+        "title": "Vivado: Select Device"
+      },
+      {
+        "command": "vivado.setTop",
+        "title": "Vivado: Set as Top Module"
+      },
+      {
+        "command": "vivado.addFile",
+        "title": "Vivado: Add File to Project",
+        "icon": "$(add)"
+      },
+      {
+        "command": "vivado.removeFile",
+        "title": "Vivado: Remove from Project",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "vivado.check",
+        "title": "Vivado: Check Project",
+        "icon": "$(check)"
+      },
+      {
+        "command": "vivado.synthesize",
+        "title": "Vivado: Synthesize",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "vivado.implement",
+        "title": "Vivado: Implement"
+      },
+      {
+        "command": "vivado.bitstream",
+        "title": "Vivado: Generate Bitstream"
+      },
+      {
+        "command": "vivado.buildAll",
+        "title": "Vivado: Build All"
+      },
+      {
+        "command": "vivado.cancel",
+        "title": "Vivado: Cancel Running Operation",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "vivado.reports",
+        "title": "Vivado: Show Reports",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "vivado.simulate",
+        "title": "Vivado: Run Simulation",
+        "icon": "$(play)"
+      },
+      {
+        "command": "vivado.openWaveform",
+        "title": "Vivado: Open WDB in Waveform Viewer"
+      },
+      {
+        "command": "vivado.openVcd",
+        "title": "Vivado: Open VCD"
+      },
+      {
+        "command": "vivado.program",
+        "title": "Vivado: Program Device",
+        "icon": "$(circuit-board)"
+      },
+      {
+        "command": "vivado.previewWaveform",
+        "title": "Vivado: Preview Waveform to the Side",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "vivado.previewSchematic",
+        "title": "Vivado: Preview Synthesized Schematic to the Side",
+        "icon": "$(circuit-board)"
+      },
+      {
+        "command": "vivado.planIo",
+        "title": "Vivado: I/O Planning",
+        "icon": "$(table)"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "vivado.runMenu",
+        "label": "Vivado Run and Preview",
+        "icon": "$(chevron-down)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vivado",
+          "title": "Vivado",
+          "icon": "resources/vivado.svg"
+        }
+      ]
+    },
+    "views": {
+      "vivado": [
+        {
+          "id": "vivado.project",
+          "name": "Project"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "vivado.project",
+        "contents": "[New Project](command:vivado.createProject)\n[Import XPR Project](command:vivado.importProject)",
+        "when": "!vivado.hasProject"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vivado.simulate",
+          "when": "vivado.editorProject && !vivado.running && (resourceLangId == verilog || resourceLangId == systemverilog || resourceLangId == xdc || resourceFilename == vivado-project.json)",
+          "group": "navigation@10"
+        },
+        {
+          "command": "vivado.cancel",
+          "when": "vivado.editorProject && vivado.running",
+          "group": "navigation@10"
+        },
+        {
+          "submenu": "vivado.runMenu",
+          "when": "vivado.editorProject && (resourceLangId == verilog || resourceLangId == systemverilog || resourceLangId == xdc || resourceFilename == vivado-project.json)",
+          "group": "navigation@11"
+        }
+      ],
+      "vivado.runMenu": [
+        {
+          "command": "vivado.simulate",
+          "when": "!vivado.running",
+          "group": "1_run@1"
+        },
+        {
+          "command": "vivado.synthesize",
+          "when": "!vivado.running",
+          "group": "1_run@2"
+        },
+        {
+          "command": "vivado.implement",
+          "when": "!vivado.running",
+          "group": "1_run@3"
+        },
+        {
+          "command": "vivado.bitstream",
+          "when": "!vivado.running",
+          "group": "1_run@4"
+        },
+        {
+          "command": "vivado.buildAll",
+          "when": "!vivado.running",
+          "group": "1_run@5"
+        },
+        {
+          "command": "vivado.cancel",
+          "when": "vivado.running",
+          "group": "1_run@6"
+        },
+        {
+          "command": "vivado.previewWaveform",
+          "group": "2_preview@1"
+        },
+        {
+          "command": "vivado.previewSchematic",
+          "group": "2_preview@2"
+        },
+        {
+          "command": "vivado.reports",
+          "group": "2_preview@3"
+        },
+        {
+          "command": "vivado.planIo",
+          "when": "!vivado.running",
+          "group": "2_preview@4"
+        },
+        {
+          "command": "vivado.program",
+          "when": "!vivado.running",
+          "group": "3_hardware@1"
+        },
+        {
+          "command": "vivado.openGui",
+          "when": "!vivado.running",
+          "group": "4_external@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "vivado.planIo",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.previewWaveform",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.previewSchematic",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.refresh",
+          "when": "view == vivado.project",
+          "group": "navigation"
+        },
+        {
+          "command": "vivado.createProject",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.check",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.synthesize",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.implement",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.bitstream",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.simulate",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.program",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.reports",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.openGui",
+          "when": "view == vivado.project"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vivado.setTop",
+          "when": "view == vivado.project && viewItem == hdl"
+        },
+        {
+          "command": "vivado.removeFile",
+          "when": "view == vivado.project && viewItem =~ /hdl|file|ip/"
+        },
+        {
+          "command": "vivado.addFile",
+          "when": "view == vivado.project && viewItem == group",
+          "group": "inline"
+        },
+        {
+          "command": "vivado.selectPart",
+          "when": "view == vivado.project && viewItem == project"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "vivado.addFile",
+          "when": "resourceScheme == file"
+        }
+      ]
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": "vivado-project.json",
+        "url": "./resources/project.schema.json"
+      }
+    ],
+    "configuration": {
+      "title": "Vivado",
+      "properties": {
+        "vivado.installPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Vivado version directory, for example D:/vivado/Vivado/2018.3."
+        },
+        "vivado.outputEncoding": {
+          "type": "string",
+          "enum": [
+            "utf8",
+            "gbk"
+          ],
+          "default": "utf8",
+          "description": "Encoding of Vivado tool output. Select gbk for a Chinese Windows installation if needed."
+        },
+        "vivado.lint.onType": {
+          "type": "boolean",
+          "default": true
+        },
+        "vivado.lint.debounceMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100
+        },
+        "vivado.lint.elaborate": {
+          "type": "string",
+          "enum": [
+            "none",
+            "onSave",
+            "onIdle"
+          ],
+          "default": "onIdle"
+        },
+        "vivado.lint.maxParallel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 2
+        },
+        "vivado.build.jobs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 4
+        },
+        "vivado.sim.defaultTimescale": {
+          "type": "string",
+          "scope": "resource",
+          "default": "1ns/1ps"
+        },
+        "vivado.sim.runTime": {
+          "type": "string",
+          "scope": "resource",
+          "default": "1 us",
+          "description": "Fallback duration when simulationRunTime is absent from vivado-project.json. Use all or a positive duration such as 1 us."
+        },
+        "vivado.hw.serverUrl": {
+          "type": "string",
+          "default": "localhost:3121"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "elkjs": "0.12.0",
+    "fast-glob": "^3.3.3",
+    "fast-xml-parser": "^5.3.0",
+    "iconv-lite": "^0.7.0",
+    "lucide": "1.48.0",
+    "rust_vcd_wasm": "0.1.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/test-electron": "^2.5.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
