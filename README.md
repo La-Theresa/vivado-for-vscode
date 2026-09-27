@@ -6,21 +6,23 @@ A local-first VS Code extension for Verilog/SystemVerilog development with an in
 
 Manage projects, inspect diagnostics, synthesize and implement designs, simulate with waveform previews, inspect synthesized schematics, plan I/O assignments, and program a connected FPGA without leaving the editor.
 
-**Preview status:** version `0.3.1` is intended for local evaluation. It is not ready for public VSIX or Marketplace distribution: publisher setup and [third-party license notices](third_party/README.md) are still incomplete.
+**Preview status:** version `0.3.1` is intended for local evaluation. It has not been fully debugged and is not recommended for industrial use. Development progress may depend on the author's course schedule; see SUSTech's digital logic course labs for reference.
 
 ## Contents
 
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Project Configuration](#project-configuration)
-- [Workflows](#workflows)
-- [I/O Planning](#io-planning)
-- [Settings](#settings)
-- [Security and Privacy](#security-and-privacy)
-- [Troubleshooting](#troubleshooting)
-- [Initial Release Limits](#initial-release-limits)
-- [License](#license)
+- [Vivado for VS Code](#vivado-for-vs-code)
+  - [Contents](#contents)
+  - [Requirements](#requirements)
+  - [Installation](#installation)
+  - [Quick Start](#quick-start)
+  - [Project Configuration](#project-configuration)
+  - [Workflows](#workflows)
+  - [I/O Planning](#io-planning)
+  - [Settings](#settings)
+  - [Security and Privacy](#security-and-privacy)
+  - [Troubleshooting](#troubleshooting)
+  - [Initial Release Limits](#initial-release-limits)
+  - [License](#license)
 
 ## Requirements
 
