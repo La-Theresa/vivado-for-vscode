@@ -32,14 +32,29 @@ const ctx = await esbuild.context({
             directory = path.dirname(directory);
           }
         }
-        const notices = ['# Bundled Dependency Notices\n'];
+        const notices = ['# Bundled Dependency Notices\n\nThird-party components retain their own licenses; the extension MIT license does not replace them.\n'];
+        const licenseAudit = [];
         for (const [name, { directory, metadata }] of [...packages].sort(([a], [b]) => a.localeCompare(b))) {
           const licenses = (await fs.readdir(directory)).filter(file => /^(license|licence|copying)(\.|$)/i.test(file));
+          const supplemental = name === '@nodable/entities' && metadata.version === '3.0.0'
+            ? 'third_party/nodable-entities-LICENSE.txt' : undefined;
+          const source = name === 'elkjs'
+            ? `https://github.com/kieler/elkjs/tree/${metadata.version}`
+            : name === 'rust_vcd_wasm' && metadata.version === '0.1.6'
+              ? 'https://github.com/msBRF65/rust_vcd_wasm/tree/1b568d01e823f6ca1e7e11f213f86110ad0f638c'
+              : undefined;
           notices.push(`\n## ${name} ${metadata.version}\n\nLicense: ${metadata.license || 'See notice below'}\n`);
+          if (source) notices.push(`\nUpstream source: ${source}\n`);
+          if (name === 'elkjs') notices.push('\nDistributed under EPL-2.0. Corresponding source is available from the upstream link under that license. No local source modifications; bundled and minified by esbuild.\n');
           for (const license of licenses) notices.push('\n```text\n' + await fs.readFile(path.join(directory, license), 'utf8') + '\n```\n');
+          if (!licenses.length && supplemental) notices.push('\n```text\n' + await fs.readFile(supplemental, 'utf8') + '\n```\n');
+          const missingLicenseText = !licenses.length && !supplemental;
+          if (missingLicenseText) notices.push('\nRELEASE BLOCKER: License text is missing from the installed package. Verify upstream notices before redistribution.\n');
+          licenseAudit.push({ name, version: metadata.version, license: metadata.license, missingLicenseText });
         }
         await fs.mkdir('dist', { recursive: true });
         await fs.writeFile('dist/THIRD_PARTY_NOTICES.md', notices.join(''), 'utf8');
+        await fs.writeFile('dist/license-audit.json', JSON.stringify(licenseAudit, null, 2) + '\n', 'utf8');
       });
     },
   }],

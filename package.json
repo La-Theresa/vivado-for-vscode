@@ -3,8 +3,16 @@
   "displayName": "Vivado for VS Code",
   "description": "Vivado projects, live Verilog diagnostics, builds, simulation and hardware programming.",
   "version": "0.3.1",
-  "publisher": "local-vivado",
+  "publisher": "La-Theresa",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/La-Theresa/vivado-for-vscode.git"
+  },
+  "homepage": "https://github.com/La-Theresa/vivado-for-vscode#readme",
+  "bugs": {
+    "url": "https://github.com/La-Theresa/vivado-for-vscode/issues"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -54,7 +62,9 @@
     "test:extension": "npm run compile && tsx tests/run-extension.ts",
     "test:preview": "npm run compile && tsx tests/preview-browser.ts",
     "test:io": "tsx tests/vivado-io.ts",
-    "package": "npm run check && vsce package --no-dependencies --allow-missing-repository",
+    "package": "npm run check && vsce package --no-dependencies --githubBranch master",
+    "package:files": "vsce ls --no-dependencies",
+    "check:release": "npm run check && npm test && npm run compile && node scripts/check-release.mjs",
     "vscode:prepublish": "npm run compile"
   },
   "contributes": {
@@ -367,7 +377,7 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "description": "Vivado version directory, for example D:/vivado/Vivado/2018.3."
+          "description": "Vivado version directory, for example C:/Xilinx/Vivado/2018.3."
         },
         "vivado.outputEncoding": {
           "type": "string",

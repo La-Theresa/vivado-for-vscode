@@ -10,3 +10,37 @@ out/
 *.pb
 .Xil/
 xsim.dir/
+
+# Local maintainer notes (keep these files on this machine)
+/LOCAL_DEVELOPMENT.md
+/TESTING.md
+/PUBLISHING.md
+/RELEASE_REVIEW.md
+
+# Local credentials and editor/agent state
+.env
+.env.*
+.npmrc
+.vsce
+*.pem
+*.key
+*.p12
+*.pfx
+.vscode/settings.json
+.idea/
+.history/
+.agents/
+.codex/
+
+# Generated FPGA artifacts and local operating-system metadata
+*.bit
+*.bin
+*.dcp
+*.wdb
+*.vcd
+*.str
+*.zip
+*.tmp
+*.tsbuildinfo
+.DS_Store
+Thumbs.db

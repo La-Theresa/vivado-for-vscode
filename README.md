@@ -1,12 +1,64 @@
 # Vivado for VS Code
 
+English | [简体中文](README.zh-CN.md)
+
 A local-first VS Code extension for Verilog/SystemVerilog development with an installed Vivado toolchain. The initial compatibility target is Windows and Vivado 2018.3. Language highlighting is provided by `mshr-h.veriloghdl`; this extension does not register competing language IDs.
+
+Manage projects, inspect diagnostics, synthesize and implement designs, simulate with waveform previews, inspect synthesized schematics, plan I/O assignments, and program a connected FPGA without leaving the editor.
+
+**Preview status:** version `0.3.1` is intended for local evaluation. It is not ready for public VSIX or Marketplace distribution: publisher setup and [third-party license notices](third_party/README.md) are still incomplete.
+
+## Contents
+
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Project Configuration](#project-configuration)
+- [Workflows](#workflows)
+- [I/O Planning](#io-planning)
+- [Settings](#settings)
+- [Security and Privacy](#security-and-privacy)
+- [Troubleshooting](#troubleshooting)
+- [Initial Release Limits](#initial-release-limits)
+- [License](#license)
+
+## Requirements
+
+- Desktop VS Code `1.90.0` or later, as declared in the extension manifest.
+- An independently installed Vivado toolchain with `vivado`, `xvlog`, `xelab`, `xsim`, and the required device support. Vivado is not included in the extension.
+- A local filesystem workspace that you trust. Browser-only and virtual workspaces are not supported.
+- Windows with Vivado 2018.3 is the initial tested configuration. Linux and other Vivado versions have not been qualified; macOS is not a supported toolchain host.
+- For programming: a compatible connected board, cable drivers, and a reachable `hw_server`.
+- For building this extension from source only: Node.js 22 or later and npm.
+
+## Installation
+
+To evaluate the extension locally, build a VSIX from this repository:
+
+```sh
+npm ci
+npm run check
+npm test
+npm run package
+```
+
+In VS Code, run **Extensions: Install from VSIX...** and select `vivado-for-vscode-0.3.1.vsix`, or run:
+
+```sh
+code --install-extension ./vivado-for-vscode-0.3.1.vsix
+```
+
+The extension manifest includes `mshr-h.veriloghdl` as a companion extension. Check that it is installed, especially when installing offline. This project does not ship that extension's code or the Vivado installer.
+
+For a self-contained example, open [`examples/counter`](examples/counter) from the source checkout as the workspace folder, not the repository root. Examples and development/test artifacts are intentionally excluded from the VSIX.
+
+The example XDC is a tool-flow fixture for `xc7a35tcsg324-1`, **not a verified board template**. Verify every pin and configuration voltage against your actual board before programming it.
 
 ## Quick Start
 
 1. Install the generated VSIX using **Extensions: Install from VSIX**.
 2. Open a local, trusted workspace folder.
-3. Set `vivado.installPath` to the Vivado version directory, for example `D:/vivado/Vivado/2018.3`. Otherwise detection checks `XILINX_VIVADO`, PATH and common installation directories.
+3. Set `vivado.installPath` to your Vivado version directory, for example `C:/Xilinx/Vivado/2018.3`. Otherwise detection checks `XILINX_VIVADO`, PATH and common installation directories.
 4. Run **Vivado: New Project** or **Vivado: Import XPR Project**. Select a part from the installed-device list.
 5. Add files from Explorer or the Vivado sidebar. Set the design top or simulation top from a source file's context menu.
 6. Use the play button at the top right of an HDL editor to run simulation. The adjacent menu includes synthesis, implementation, bitstream generation and previews. During a run, the play button becomes Stop.
@@ -89,29 +141,28 @@ This is package-pin planning, not a board-aware electrical sign-off tool. Incomp
 | `vivado.sim.runTime` | `1 us`; fallback if the project has no `simulationRunTime` |
 | `vivado.hw.serverUrl` | `localhost:3121` |
 
-## Development and Tests
+## Security and Privacy
 
-```text
-npm ci
-npm run check
-npm test
-npm run compile
-npm run test:vivado
-npm run test:extension
-npm run test:preview
-npm run test:io
-npm run package
-```
+- Workspace Trust is required. Vivado, HDL and XDC/Tcl inputs can execute code with your account's permissions; this extension is not a sandbox. Review unfamiliar projects before trusting them.
+- Project configuration permits absolute paths and references outside the workspace. Review imported paths before running tools.
+- This extension adds no telemetry or cloud upload, and its preview scripts, styles and parser are bundled locally. Vivado/licensing services, VS Code and companion extensions have their own network behavior. Hardware programming connects to the configured `hw_server`.
+- Source snapshots, reports and simulator traces can contain proprietary design data and local paths. Keep `.vivado/`, generated traces, credentials and local settings out of public repositories. Abnormal termination can leave source snapshots in the system temporary directory.
+- Device programming requires explicit confirmation. The sample pin constraints are not a board-safety guarantee.
 
-Press F5 in this repository to launch an Extension Development Host with the included example. `npm run test:vivado -- --quick` skips synthesis/implementation. `npm run test:edges -- --negative-build --hardware` covers path handling, elaborator options, failed builds, recovery and no-board behavior. The hardware test only queries targets and never programs devices.
+## Troubleshooting
 
-`npm run test:io` checks real LUT symbol identification, part-specific pin queries, XDC round trips, pin swaps, clearing/restoring assignments, conflict guards and a complete bitstream build. Add `-- --quick` to skip the final implementation/bitstream stage.
+| Symptom | Check |
+| --- | --- |
+| Vivado is not found | Select the version directory, not an executable. All four command-line tools must exist. A configured invalid path deliberately does not fall back to another installation. |
+| No project actions in the editor | Open the folder containing `vivado-project.json`, trust it, and run **Vivado: Refresh Project**. |
+| Duplicate diagnostics | Set the companion extension's `verilog.linting.linter` to `none`. |
+| Garbled Chinese tool output | Set `vivado.outputEncoding` to `gbk`, then retry the operation. |
+| Simulation never ends | Use a finite `simulationRunTime`, or ensure an `all` testbench calls `$finish`. Cancel from the Run menu if needed. |
+| Schematic/I/O view is stale | Save sources and run **Vivado: Synthesize**; reload the I/O view before editing. |
+| Project is locked or modified unexpectedly | Close the native Vivado GUI project before using VS Code build commands. |
+| No hardware target | Check board power, cable drivers, the server URL and connectivity; a successful build alone cannot validate the board. |
 
-The extension-host test uses a separate VS Code profile and extension directory under `.test-work`; it does not alter your daily VS Code settings. Set `VSCODE_EXECUTABLE` to override the local test executable and `VIVADO_PATH` to override detection for tool tests. Tests retain their generated projects and logs under `.test-work` for inspection.
-
-The preview browser test uses a locally installed Chrome by default (`PREVIEW_BROWSER=msedge` also works), tests wide/narrow panels, and writes screenshots under `.test-work/preview-browser`. It does not use a remote renderer. Waveform parsing uses `rust_vcd_wasm`; schematic layout uses ELK. All preview assets are bundled, with no CDN or telemetry.
-
-The example XDC is a tool-flow fixture for `xc7a35tcsg324-1`, **not a verified board template**. Verify every pin and configuration voltage against your actual board before programming it.
+When reporting a problem, include the extension, VS Code, OS and Vivado versions, a minimal project, and sanitized excerpts from **Output > Vivado**. Do not post tokens, proprietary HDL, board serial numbers, or unredacted absolute paths. See the repository's [issue tracker](https://github.com/La-Theresa/vivado-for-vscode/issues).
 
 ## Initial Release Limits
 
@@ -125,4 +176,8 @@ The example XDC is a tool-flow fixture for `xc7a35tcsg324-1`, **not a verified b
 - I/O Planning checks package-pin membership, duplicate use and basic I/O-standard compatibility. Full board-aware electrical validation, testbench generation, board templates and configuration Flash are not included.
 - Source-based linting uses temporary files. Deactivation cancels active tools and normal completion removes snapshots; a forcibly terminated extension host may leave snapshots in the system temporary directory.
 
-Vivado and Xilinx are trademarks of their respective owners. This is an independent local development project, not an AMD product.
+## License
+
+This project's source is licensed under [MIT](LICENSE). Bundled third-party components retain their own licenses; the build generates `dist/THIRD_PARTY_NOTICES.md`. See [third_party/README.md](third_party/README.md) for the unresolved WASM notice requirement. Vivado itself is neither included nor relicensed by this project.
+
+Vivado and Xilinx are trademarks of their respective owners. This is an independent community project, not an AMD product and not affiliated with or endorsed by AMD.
