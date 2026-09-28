@@ -19,16 +19,43 @@ provides a [corresponding-source link](https://github.com/kieler/elkjs/tree/0.12
 ELK is bundled/minified, without local changes to its source. Review source and
 notice obligations again when upgrading or modifying it.
 
-## rust_vcd_wasm 0.1.6: Unresolved
+## Self-Built VCD WASM
 
-The npm archive declares `MIT/Apache-2.0`, but contains no license text. Its
-published `gitHead` is `1b568d01e823f6ca1e7e11f213f86110ad0f638c`.
-The [corresponding upstream tree](https://github.com/msBRF65/rust_vcd_wasm/tree/1b568d01e823f6ca1e7e11f213f86110ad0f638c)
-also lacks license files and a Cargo lockfile. `Cargo.toml` lists
-`console_error_panic_hook`, `js-sys`, `vcd` and `wasm-bindgen`.
+Version 0.4.1 replaces the unauditable precompiled `rust_vcd_wasm@0.1.6` package.
+Its JavaScript glue and binary are not used or copied. The project-owned MIT
+wrapper in `wasm/vcd-parser` uses the established `vcd@0.7.0` Rust parser and
+`serde_json@1.0.145`, compiled with Rust 1.85.1 for `wasm32-unknown-unknown`.
+The upstream `vcd` MIT text preserves Kevin Mehall's copyright.
 
-Before distributing the VSIX, obtain the applicable copyright/license texts and
-the notices for the Rust code compiled into the prebuilt WASM, or replace it
-with a dependency/build whose source and notices can be verified. Do not invent
-an upstream copyright notice or treat an npm audit as a WASM dependency audit.
-The release preflight intentionally fails while this remains unresolved.
+[`wasm-notices.json`](wasm-notices.json) contains exact registry versions,
+archive SHA-256 checksums, source locations and full upstream notice texts.
+The collector checks each downloaded archive against the corresponding
+`Cargo.lock` checksum. Texts are hashed and deduplicated, not replaced with
+generic license templates. The application lockfile and pinned Rust library
+lockfile are both covered, including optional/build/test and non-WASM platform
+dependencies as a conservative superset. Their inclusion in the notice list
+does not assert that they are linked into the WASM.
+
+Rust runtime declarations include the toolchain's `COPYRIGHT`, MIT and Apache
+texts, submodule notices for stdarch, portable-simd and backtrace, and all
+registry crates in its library lockfile. Two special archive layouts are
+handled explicitly:
+
+- `r-efi` and `r-efi-alloc` provide their full MIT grant and copyright in
+  `AUTHORS`; that file is retained unchanged.
+- `fortanix-sgx-abi@0.5.0`, an SGX-only extra, omits its license file. Its MPL
+  text is retrieved from the exact commit recorded in the archive's
+  `.cargo_vcs_info.json`, with the Git blob hash checked. The supplemental
+  source link is retained in the notices.
+
+The VSIX includes the full generated `dist/THIRD_PARTY_NOTICES.md`, the
+project MIT license and `dist/wasm-build.json`. The receipt ties the binary
+hash to the wrapper, dependency lock, fixed toolchain and notice data.
+Build and release checks reject stale or incomplete evidence and exercise
+the real WASM ABI. No prebuilt fallback is permitted.
+
+See the [reproducible build instructions](../wasm/README.md). Updating Rust or
+either lockfile requires regenerating and reviewing notices. These checks
+document provenance and notice coverage; they do not constitute legal advice,
+a vulnerability audit of Rust dependencies or a guarantee of all license
+obligations.

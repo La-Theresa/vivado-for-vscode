@@ -15,16 +15,18 @@ export interface ProcessOptions {
 
 export interface ProcessResult { code: number; output: string }
 
+export function windowsBatchCommand(executable: string, args: string[]): string {
+  // cmd expands percent variables even inside quotes; reject ambiguous input.
+  const quote = (value: string) => {
+    if (/["%\r\n\0]/.test(value)) throw new Error('Windows batch arguments cannot contain quotes, percent signs or line breaks.');
+    return `"${value}"`;
+  };
+  return `"${[executable, ...args].map(quote).join(' ')}"`;
+}
+
 export function spawnTool(executable: string, args: string[], cwd: string): ChildProcess {
   if (process.platform === 'win32' && /\.(bat|cmd)$/i.test(executable)) {
-    // cmd expands percent variables even inside quotes; reject ambiguous input.
-    const quote = (value: string) => {
-      if (/["%\r\n\0]/.test(value)) {
-        throw new Error('Windows batch arguments cannot contain quotes, percent signs or line breaks.');
-      }
-      return `"${value}"`;
-    };
-    const command = `"${[executable, ...args].map(quote).join(' ')}"`;
+    const command = windowsBatchCommand(executable, args);
     return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/v:off', '/c', command], {
       cwd, windowsHide: true, windowsVerbatimArguments: true, stdio: 'pipe',
     });

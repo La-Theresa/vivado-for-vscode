@@ -19,6 +19,7 @@ export interface ProjectConfig {
   simulationTop?: string;
   simulationRunTime?: string;
   ioConstraints?: string;
+  projectDirectory?: string;
 }
 export interface ResolvedProject {
   root: string;
@@ -32,7 +33,7 @@ export interface ResolvedProject {
 export function validateConfig(value: unknown): ProjectConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Project configuration must be an object.');
   const data = value as Record<string, unknown>;
-  const allowed = new Set(['version', 'name', 'part', 'top', 'sources', 'constraints', 'simulation', 'exclude', 'includeDirs', 'defines', 'simulationTop', 'simulationRunTime', 'ioConstraints', '$schema']);
+  const allowed = new Set(['version', 'name', 'part', 'top', 'sources', 'constraints', 'simulation', 'exclude', 'includeDirs', 'defines', 'simulationTop', 'simulationRunTime', 'ioConstraints', 'projectDirectory', '$schema']);
   for (const key of Object.keys(data)) if (!allowed.has(key)) throw new Error(`Unknown project property: ${key}`);
   if (data.version !== 1) throw new Error('Project version must be 1.');
   const text = (name: string, pattern: RegExp): string => {
@@ -59,6 +60,14 @@ export function validateConfig(value: unknown): ProjectConfig {
   if (data.simulationTop !== undefined) config.simulationTop = text('simulationTop', /^[A-Za-z_][A-Za-z0-9_$]*$/);
   if (data.simulationRunTime !== undefined) config.simulationRunTime = normalizeSimulationRunTime(data.simulationRunTime);
   if (data.ioConstraints !== undefined) config.ioConstraints = text('ioConstraints', /^[^\0\r\n]+\.xdc$/i);
+  if (data.projectDirectory !== undefined) {
+    const directory = text('projectDirectory', /^[^\0\r\n]+$/).replace(/\\/g, '/');
+    const normalized = path.posix.normalize(directory);
+    if (path.win32.isAbsolute(directory) || /^[A-Za-z]:/.test(directory) || normalized === '..' || normalized.startsWith('../')) {
+      throw new Error('projectDirectory must be a relative directory inside the project folder.');
+    }
+    config.projectDirectory = normalized;
+  }
   return config;
 }
 
@@ -73,7 +82,7 @@ export async function writeConfig(root: string, config: ProjectConfig): Promise<
 export async function resolveProject(root: string, config?: ProjectConfig): Promise<ResolvedProject> {
   config ??= await readConfig(root);
   const files = {} as Record<FileGroup, string[]>;
-  const ignore = ['**/.vivado/**', '**/node_modules/**', '**/.git/**', ...config.exclude];
+  const ignore = [...PROJECT_IGNORES, ...config.exclude];
   for (const group of ['sources', 'constraints', 'simulation'] as FileGroup[]) {
     const ordered: string[] = [];
     for (const pattern of config[group]) ordered.push(...(await fg(pattern, { cwd: root, absolute: true, onlyFiles: true, unique: true, ignore, dot: false })).sort());
@@ -84,12 +93,15 @@ export async function resolveProject(root: string, config?: ProjectConfig): Prom
     await fs.access(planned).catch(() => { throw new Error(`I/O constraints file is missing: ${planned}. Restore it or remove ioConstraints from vivado-project.json.`); });
     files.constraints = [...files.constraints.filter(file => path.normalize(file).toLowerCase() !== path.normalize(planned).toLowerCase()), planned];
   }
-  const projectDir = path.join(root, '.vivado', 'project');
+  const projectDir = path.resolve(root, config.projectDirectory ?? '.vivado/project');
   return {
     root, config, files, projectDir, xpr: path.join(projectDir, `${config.name}.xpr`),
     includeDirs: config.includeDirs.map(dir => path.resolve(root, dir)),
   };
 }
+
+export const PROJECT_IGNORES = ['**/.vivado/**', '**/node_modules/**', '**/.git/**',
+  '**/*.runs/**', '**/*.cache/**', '**/*.sim/**', '**/*.hw/**', '**/*.gen/**', '**/*.ip_user_files/**'];
 
 export const isHdl = (file: string) => /\.(v|sv)$/i.test(file);
 export const isHeader = (file: string) => /\.(vh|svh)$/i.test(file);

@@ -5,7 +5,10 @@ import os from 'node:os';
 import { detectToolchain, Toolchain } from './toolchain/detect';
 import { CancelledError, requireSuccess, spawnTool } from './toolchain/process';
 import { TclSession } from './toolchain/tclSession';
-import { CONFIG_FILE, FileGroup, discoverModules, portablePath, readConfig, resolveProject, validateConfig, writeConfig } from './project/config';
+import { CONFIG_FILE, discoverModules, portablePath, readConfig, resolveProject, writeConfig } from './project/config';
+import { createProjectFolder, createProjectSourceFolders } from './project/create';
+import { isInside, ProjectIndex } from './project/projects';
+import { consoleShell, consoleStartupTcl } from './toolchain/console';
 import { importXpr } from './project/importXpr';
 import { installedParts } from './project/parts';
 import { syncProjectTcl } from './project/sync';
@@ -17,20 +20,29 @@ import { hardwareDevices, hardwareTargets, NoHardwareError, programDevice } from
 import { ProjectNode, ProjectTree } from './views/projectTree';
 import { showReports } from './views/reportsPanel';
 import { PreviewPanels } from './views/previewPanel';
-import { DEFAULT_SIMULATION_RUN_TIME, simulationRunTime } from './sim/runtime';
+import { simulationRunTime } from './sim/runtime';
 import { readIoPlan, saveIoPlan } from './io/planner';
 
 export async function activate(context: vscode.ExtensionContext) {
   const output = vscode.window.createOutputChannel('Vivado');
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 20);
-  const tree = new ProjectTree();
+  const projects = new ProjectIndex(context.workspaceState.get<string[]>('closedProjects', []));
+  const extraRoots = new Set(context.workspaceState.get<string[]>('openedProjects', []));
+  const tree = new ProjectTree(() => projects.roots);
   const buildDiagnostics = vscode.languages.createDiagnosticCollection('Vivado Build');
   const simDiagnostics = vscode.languages.createDiagnosticCollection('Vivado Simulation');
   const tools = new Map<string, Toolchain>();
   const sessions = new Map<string, TclSession>();
   const running = new Map<string, AbortController>();
+  const operationDone = new Map<string, Promise<void>>();
+  const consoles = new Map<string, vscode.Terminal>();
+  const externalWatchers = new Map<string, vscode.Disposable>();
+  const closing = new Set<string>();
+  let projectRefresh: Promise<void> | undefined;
+  let refreshAgain = false;
   const log = (text: string) => output.append(text);
-  const linter = new Linter(root => tools.get(root), log);
+  const linter = new Linter(root => closing.has(root) ? undefined : tools.get(root), log,
+    file => projects.owners(file).find(root => !closing.has(root)));
   const previews = new PreviewPanels(context.extensionUri, {
     open: openIo,
     reload: async (root, dirty) => {
@@ -50,19 +62,29 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(output, status, tree, linter, buildDiagnostics, simDiagnostics, previews,
     vscode.window.registerTreeDataProvider('vivado.project', tree),
-    { dispose: () => { for (const controller of running.values()) controller.abort(); for (const session of sessions.values()) void session.dispose(); } });
+    { dispose: () => {
+      for (const controller of running.values()) controller.abort();
+      for (const session of sessions.values()) void session.dispose();
+      for (const terminal of consoles.values()) terminal.dispose();
+      for (const watcher of externalWatchers.values()) watcher.dispose();
+    } });
 
   const configuration = (root: string) => vscode.workspace.getConfiguration('vivado', vscode.Uri.file(root));
-  let editorContextGeneration = 0;
   const updateEditorContext = async () => {
-    const generation = ++editorContextGeneration;
     const uri = vscode.window.activeTextEditor?.document.uri;
-    const folder = uri && vscode.workspace.getWorkspaceFolder(uri);
-    const hasProject = !!folder && folder.uri.scheme === 'file' && await fs.access(path.join(folder.uri.fsPath, CONFIG_FILE)).then(() => true, () => false);
-    if (generation === editorContextGeneration) await vscode.commands.executeCommand('setContext', 'vivado.editorProject', hasProject);
+    const hasProject = uri?.scheme === 'file' && projects.owners(uri.fsPath).length > 0;
+    await vscode.commands.executeCommand('setContext', 'vivado.editorProject', !!hasProject);
+    await vscode.commands.executeCommand('setContext', 'vivado.hasProject', projects.roots.length > 0);
   };
   const idleStatus = () => {
-    const active = vscode.window.activeTextEditor && vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)?.uri.fsPath;
+    if (!projects.roots.length) {
+      status.text = '$(circuit-board) Vivado: No open project';
+      status.tooltip = 'Open a Vivado project';
+      status.command = 'vivado.openProject';
+      status.show();
+      return;
+    }
+    const active = vscode.window.activeTextEditor && projects.owners(vscode.window.activeTextEditor.document.uri.fsPath)[0];
     const tool = (active && tools.get(active)) || tools.values().next().value;
     status.text = tool ? `$(circuit-board) Vivado ${tool.version}` : '$(warning) Vivado not found';
     status.tooltip = tool?.root || 'Select a Vivado installation';
@@ -70,9 +92,24 @@ export async function activate(context: vscode.ExtensionContext) {
     status.show();
   };
 
-  async function rootFor(value?: unknown): Promise<string> {
-    if (value instanceof ProjectNode) return value.root;
+  async function rootFor(value?: unknown, requireProject = true): Promise<string> {
+    if (value instanceof ProjectNode) {
+      if (requireProject && !projects.has(value.root)) throw new Error('This project is closed. Use Vivado: Open Project.');
+      return value.root;
+    }
     const uri = value instanceof vscode.Uri ? value : vscode.window.activeTextEditor?.document.uri;
+    if (requireProject) {
+      const owners = uri?.scheme === 'file' ? projects.owners(uri.fsPath) : [];
+      if (value instanceof vscode.Uri && !owners.length && projects.closedRoots.some(root => isInside(root, value.fsPath))) {
+        throw new Error('This project is closed. Use Vivado: Open Project.');
+      }
+      const roots = owners.length ? owners : projects.roots;
+      if (!roots.length) throw new Error('No open Vivado project. Use Vivado: Open Project, New Project or Import XPR Project.');
+      if (roots.length === 1) return roots[0];
+      const selected = await vscode.window.showQuickPick(roots.map(root => ({ label: path.basename(root), description: root, root })), { title: 'Vivado project' });
+      if (!selected) throw new CancelledError();
+      return selected.root;
+    }
     const folder = uri && vscode.workspace.getWorkspaceFolder(uri);
     if (folder) return folder.uri.fsPath;
     const folders = (vscode.workspace.workspaceFolders || []).filter(f => f.uri.scheme === 'file');
@@ -81,6 +118,97 @@ export async function activate(context: vscode.ExtensionContext) {
     const selected = await vscode.window.showQuickPick(folders.map(f => ({ label: f.name, description: f.uri.fsPath, root: f.uri.fsPath })), { title: 'Vivado workspace' });
     if (!selected) throw new CancelledError();
     return selected.root;
+  }
+
+  function refreshProjects(): Promise<void> {
+    if (projectRefresh) { refreshAgain = true; return projectRefresh; }
+    projectRefresh = (async () => {
+      do { refreshAgain = false; await refreshProjectsNow(); } while (refreshAgain);
+    })().finally(() => { projectRefresh = undefined; });
+    return projectRefresh;
+  }
+
+  async function refreshProjectsNow(): Promise<void> {
+    const previous = projects.roots;
+    await projects.refresh((vscode.workspace.workspaceFolders || []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath), [...extraRoots]);
+    for (const root of previous) if (!projects.has(root)) {
+      running.get(root)?.abort();
+      linter.closeProject(root);
+      consoles.get(root)?.dispose();
+      consoles.delete(root);
+      externalWatchers.get(root)?.dispose();
+      externalWatchers.delete(root);
+      previews.closeProject(root);
+      await sessions.get(root)?.dispose();
+      sessions.delete(root);
+      tools.delete(root);
+      clearWorkspaceDiagnostics(buildDiagnostics, root);
+      clearWorkspaceDiagnostics(simDiagnostics, root);
+    }
+    await updateEditorContext();
+    tree.refresh();
+    for (const root of projects.roots) {
+      if (externalWatchers.has(root) || vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root))) continue;
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '**/*.{json,v,sv,vh,svh,xdc,xci,bd}'));
+      const configChanged = (uri: vscode.Uri) => {
+        if (path.basename(uri.fsPath) === CONFIG_FILE) {
+          void refreshIoProject(root);
+          void refreshProjects().catch(error => log(String(error) + '\n'));
+        }
+      };
+      externalWatchers.set(root, vscode.Disposable.from(watcher, watcher.onDidChange(configChanged),
+        watcher.onDidCreate(filesChanged), watcher.onDidDelete(filesChanged)));
+    }
+    for (const root of projects.roots) if (!tools.has(root) && !closing.has(root)) await detect(root).catch(error => log(String(error) + '\n'));
+    linter.refresh();
+  }
+
+  async function openProject(root: string): Promise<void> {
+    await readConfig(root);
+    projects.open(root);
+    extraRoots.add(root);
+    await context.workspaceState.update('closedProjects', projects.closedRoots);
+    await context.workspaceState.update('openedProjects', [...extraRoots]);
+    await refreshProjects();
+  }
+
+  async function closeConsole(root: string): Promise<void> {
+    const terminal = consoles.get(root);
+    if (!terminal) return;
+    await new Promise<void>(resolve => {
+      const listener = vscode.window.onDidCloseTerminal(closed => {
+        if (closed !== terminal) return;
+        listener.dispose();
+        consoles.delete(root);
+        resolve();
+      });
+      terminal.dispose();
+    });
+  }
+
+  async function closeProject(root: string): Promise<void> {
+    closing.add(root);
+    try {
+      running.get(root)?.abort();
+      await operationDone.get(root);
+      linter.closeProject(root);
+      await closeConsole(root);
+      await sessions.get(root)?.dispose();
+      sessions.delete(root);
+      previews.closeProject(root);
+      clearWorkspaceDiagnostics(buildDiagnostics, root);
+      clearWorkspaceDiagnostics(simDiagnostics, root);
+      tools.delete(root);
+      projects.close(root);
+      externalWatchers.get(root)?.dispose();
+      externalWatchers.delete(root);
+      extraRoots.delete(root);
+      await context.workspaceState.update('closedProjects', projects.closedRoots);
+      await context.workspaceState.update('openedProjects', [...extraRoots]);
+      await updateEditorContext();
+      idleStatus();
+      tree.refresh();
+    } finally { closing.delete(root); }
   }
 
   async function detect(root: string, select = false): Promise<Toolchain | undefined> {
@@ -93,7 +221,8 @@ export async function activate(context: vscode.ExtensionContext) {
       setting = choice[0].fsPath;
       found = await detectToolchain(setting);
       if (!found) throw new Error('This directory does not contain a working Vivado installation.');
-      await configuration(root).update('installPath', setting, vscode.ConfigurationTarget.WorkspaceFolder);
+      await configuration(root).update('installPath', setting,
+        vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root)) ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Global);
     }
     await sessions.get(root)?.dispose();
     sessions.delete(root);
@@ -127,9 +256,16 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   async function operation<T>(root: string, title: string, action: (signal: AbortSignal, report: (message: string) => void) => Promise<T>): Promise<T> {
+    if (consoles.has(root)) {
+      if (await vscode.window.showWarningMessage(`Close the Tcl Console before ${title}? Save any Tcl changes you need to keep; automated runs synchronize from vivado-project.json.`, { modal: true }, 'Close Console and Continue') !== 'Close Console and Continue') throw new CancelledError();
+      await closeConsole(root);
+    }
+    if (closing.has(root)) throw new CancelledError();
     if (running.has(root)) throw new Error('A Vivado operation is already running for this workspace. Cancel it or wait for completion.');
     const controller = new AbortController();
     running.set(root, controller);
+    let finish!: () => void;
+    operationDone.set(root, new Promise<void>(resolve => { finish = resolve; }));
     await vscode.commands.executeCommand('setContext', 'vivado.running', true);
     output.show(true);
     log(`\n=== ${title} ===\n`);
@@ -144,6 +280,8 @@ export async function activate(context: vscode.ExtensionContext) {
       running.delete(root);
       await vscode.commands.executeCommand('setContext', 'vivado.running', running.size > 0);
       idleStatus(); tree.refresh();
+      operationDone.delete(root);
+      finish();
     }
   }
 
@@ -176,17 +314,19 @@ export async function activate(context: vscode.ExtensionContext) {
     const project = await resolveProject(root);
     await operation(root, 'Synchronize Vivado project', async signal => {
       requireSuccess(await runBatch(tool, syncProjectTcl(project) + '\nclose_project\n', path.join(root, '.vivado', 'scripts', 'sync.tcl'), { cwd: root, signal, encoding: configuration(root).get('outputEncoding', 'utf8'), onOutput: log }), 'Project synchronization');
+      if (project.config.projectDirectory === '.') await createProjectSourceFolders(project);
     });
   }
 
   async function saveProjectFiles(root: string): Promise<void> {
-    const dirty = vscode.workspace.textDocuments.filter(document => document.isDirty && vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath === root);
+    const dirty = vscode.workspace.textDocuments.filter(document => document.isDirty && document.uri.scheme === 'file'
+      && (projects.owners(document.uri.fsPath).includes(root) || isInside(root, document.uri.fsPath)));
     if (dirty.length && await vscode.window.showWarningMessage('Save modified workspace files before running Vivado?', { modal: true }, 'Save and Continue') !== 'Save and Continue') throw new CancelledError();
     for (const document of dirty) if (!await document.save()) throw new Error(`Could not save ${document.fileName}`);
   }
 
-  command('detect', async value => { const root = await rootFor(value); await detect(root, true); });
-  command('refresh', async () => { tree.refresh(); linter.refresh(); });
+  command('detect', async value => { const root = await rootFor(value, false); await detect(root, true); });
+  command('refresh', refreshProjects);
   command('cancel', () => { for (const controller of running.values()) controller.abort(); });
   command('check', async value => { const root = await rootFor(value); await getTools(root); await linter.checkWorkspace(root); });
   command('reports', async value => showReports(await rootFor(value)));
@@ -221,20 +361,45 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   command('planIo', async value => openIo(await rootFor(value)));
   command('createProject', async value => {
-    const root = await rootFor(value);
-    if (!await allowOverwrite(root)) return;
-    const part = await selectPart(root);
-    if (!part) return;
     const name = await vscode.window.showInputBox({ title: 'Project name', value: 'fpga_project', validateInput: value => /^[A-Za-z_][A-Za-z0-9_-]*$/.test(value) ? undefined : 'Use letters, numbers, underscores and hyphens.' });
     if (!name) return;
+    const location = await vscode.window.showOpenDialog({
+      title: `Project location: create the ${name} subfolder here`,
+      canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
+      defaultUri: value instanceof ProjectNode ? vscode.Uri.file(path.dirname(value.root)) : vscode.workspace.workspaceFolders?.[0]?.uri,
+    });
+    if (!location?.length) return;
+    const parent = location[0].fsPath;
+    const part = await selectPart(parent);
+    if (!part) return;
     const top = await vscode.window.showInputBox({ title: 'Top module', value: 'top', validateInput: value => /^[A-Za-z_][A-Za-z0-9_$]*$/.test(value) ? undefined : 'Enter a Verilog module identifier.' });
     if (!top) return;
-    await writeConfig(root, validateConfig({ version: 1, name, part, top, simulationRunTime: DEFAULT_SIMULATION_RUN_TIME, sources: ['rtl/**/*.{v,sv,vh,svh}', '*.{v,sv,vh,svh}'], constraints: ['constraints/**/*.xdc', '*.xdc'], simulation: ['sim/**/*.{v,sv}', 'tb/**/*.{v,sv}'] }));
+    const root = await createProjectFolder(parent, name, part, top);
+    const tool = tools.get(parent);
+    if (tool) tools.set(root, tool);
     await synchronize(root);
+    await openProject(root);
     await vscode.window.showTextDocument(vscode.Uri.file(path.join(root, CONFIG_FILE)));
   });
-  command('importProject', async value => {
+  command('openProject', async value => {
+    const selected = value instanceof vscode.Uri ? value : (await vscode.window.showOpenDialog({
+      title: 'Open vivado-project.json', canSelectMany: false, canSelectFiles: true,
+      filters: { 'Vivado project configuration': ['json'] },
+    }))?.[0];
+    if (!selected) return;
+    const stat = await fs.stat(selected.fsPath);
+    if (!stat.isDirectory() && path.basename(selected.fsPath) !== CONFIG_FILE) throw new Error(`Select ${CONFIG_FILE}. To open an XPR, use Vivado: Import XPR Project.`);
+    const root = stat.isDirectory() ? selected.fsPath : path.dirname(selected.fsPath);
+    await openProject(root);
+    await vscode.window.showTextDocument(vscode.Uri.file(path.join(root, CONFIG_FILE)));
+  });
+  command('closeProject', async value => {
     const root = await rootFor(value);
+    if (await vscode.window.showWarningMessage(`Close ${path.basename(root)}? Running tasks, Tcl Console and previews will close. Unsaved I/O table edits will be discarded; source files and project files will not be deleted.`, { modal: true }, 'Close Project') !== 'Close Project') return;
+    await closeProject(root);
+  });
+  command('importProject', async value => {
+    const root = await rootFor(value, false);
     if (!await allowOverwrite(root)) return;
     const files = await vscode.window.showOpenDialog({ canSelectMany: false, filters: { 'Vivado Project': ['xpr'] } });
     if (!files?.length) return;
@@ -242,6 +407,7 @@ export async function activate(context: vscode.ExtensionContext) {
     await writeConfig(root, imported.config);
     for (const warning of imported.warnings) log(warning + '\n');
     await synchronize(root);
+    await openProject(root);
     void vscode.window.showInformationMessage('Project imported. Import limitations are listed in Vivado Output.');
   });
   command('selectPart', async value => {
@@ -302,13 +468,32 @@ export async function activate(context: vscode.ExtensionContext) {
       onMessages: messages => publishWorkspaceDiagnostics(buildDiagnostics, root, messages, path.join(root, CONFIG_FILE)),
     }));
     void vscode.window.showInformationMessage(result.state.bitstream ? `Bitstream generated: ${result.state.bitstream}` : `Vivado ${stage} complete.`);
-    if (stage === 'synthesis') await autoPreview(() => showSchematic(root));
+    if (stage === 'synthesis' && projects.has(root) && !closing.has(root)) await autoPreview(() => showSchematic(root));
     return result;
   }
   command('synthesize', value => runBuild('synthesis', value));
   command('implement', value => runBuild('implementation', value));
   command('bitstream', value => runBuild('bitstream', value));
   command('buildAll', value => runBuild('bitstream', value, true));
+
+  command('openTclConsole', async value => {
+    const root = await rootFor(value);
+    const existing = consoles.get(root);
+    if (existing) { existing.show(); return existing; }
+    await saveProjectFiles(root);
+    await synchronize(root);
+    const project = await resolveProject(root), tool = await getTools(root);
+    const script = path.join(root, '.vivado', 'scripts', 'console.tcl');
+    await fs.writeFile(script, consoleStartupTcl(project), 'utf8');
+    if (!projects.has(root) || closing.has(root)) throw new CancelledError();
+    const terminal = vscode.window.createTerminal({
+      name: `Vivado Tcl: ${project.config.name}`, cwd: root, ...consoleShell(tool.vivado, script),
+    });
+    consoles.set(root, terminal);
+    terminal.show();
+    return terminal;
+  });
+  command('closeTclConsole', async value => closeConsole(await rootFor(value)));
 
   command('openGui', async value => {
     const root = await rootFor(value);
@@ -352,7 +537,7 @@ export async function activate(context: vscode.ExtensionContext) {
       });
     }).finally(() => { cancelSimulation = () => {}; });
     void vscode.window.showInformationMessage('Simulation complete. WDB and VCD are available.');
-    await autoPreview(() => previews.waveform(root));
+    if (projects.has(root) && !closing.has(root)) await autoPreview(() => previews.waveform(root));
   });
   command('openWaveform', async value => {
     const root = await rootFor(value), state = await readSimulation(root), tool = await getTools(root);
@@ -398,27 +583,30 @@ export async function activate(context: vscode.ExtensionContext) {
   const ioConfigChanged = (uri: vscode.Uri) => { void refreshIoProject(path.dirname(uri.fsPath)); };
   const sourcesWatcher = vscode.workspace.createFileSystemWatcher('**/*.{v,sv,vh,svh,xdc,xci,bd}');
   const filesChanged = (uri: vscode.Uri) => {
-    if (/[\\/]\.vivado[\\/]/.test(uri.fsPath)) return;
-    tree.refresh();
-    linter.refresh();
+    if (/[\\/](?:\.vivado|[^\\/]+\.(?:runs|cache|sim|hw|gen|ip_user_files))[\\/]/.test(uri.fsPath)) return;
+    void refreshProjects().catch(error => log(String(error) + '\n'));
   };
   context.subscriptions.push(sourcesWatcher, sourcesWatcher.onDidCreate(filesChanged), sourcesWatcher.onDidDelete(filesChanged));
-  context.subscriptions.push(watcher, watcher.onDidChange(() => { tree.refresh(); linter.refresh(); }), watcher.onDidCreate(() => tree.refresh()), watcher.onDidDelete(() => tree.refresh()),
-    watcher.onDidChange(updateEditorContext), watcher.onDidCreate(updateEditorContext), watcher.onDidDelete(updateEditorContext),
+  const projectsChanged = () => { void refreshProjects().catch(error => log(String(error) + '\n')); };
+  context.subscriptions.push(watcher, watcher.onDidChange(projectsChanged), watcher.onDidCreate(projectsChanged), watcher.onDidDelete(projectsChanged),
     watcher.onDidChange(ioConfigChanged), watcher.onDidCreate(ioConfigChanged), watcher.onDidDelete(ioConfigChanged),
-    vscode.workspace.onDidChangeWorkspaceFolders(async event => { for (const folder of event.added) if (folder.uri.scheme === 'file') await detect(folder.uri.fsPath); tree.refresh(); }),
+    vscode.workspace.onDidChangeWorkspaceFolders(projectsChanged),
+    vscode.window.onDidCloseTerminal(terminal => { for (const [root, current] of consoles) if (current === terminal) consoles.delete(root); }),
     vscode.window.onDidChangeActiveTextEditor(() => { if (!running.size) idleStatus(); void updateEditorContext(); }),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('vivado.installPath') || event.affectsConfiguration('vivado.outputEncoding')) {
-        for (const folder of vscode.workspace.workspaceFolders || []) if (folder.uri.scheme === 'file') void detect(folder.uri.fsPath).catch(error => log(String(error)));
+        for (const root of projects.roots) void detect(root).catch(error => log(String(error)));
       }
     }));
-  for (const folder of vscode.workspace.workspaceFolders || []) if (folder.uri.scheme === 'file') await detect(folder.uri.fsPath);
+  await refreshProjects();
   idleStatus();
   await updateEditorContext();
   await vscode.commands.executeCommand('setContext', 'vivado.running', false);
   tree.refresh();
-  return { checkWorkspace: (root: string) => linter.checkWorkspace(root), getToolchain: (root: string) => tools.get(root) };
+  return {
+    checkWorkspace: (root: string) => linter.checkWorkspace(root), getToolchain: (root: string) => tools.get(root),
+    projectRoots: () => projects.roots, projectOwners: (file: string) => projects.owners(file), closeProject, refreshProjects,
+  };
 }
 
 export function deactivate() {}

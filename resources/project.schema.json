@@ -8,6 +8,7 @@
     "$schema": { "type": "string" },
     "version": { "const": 1 },
     "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+    "projectDirectory": { "type": "string", "minLength": 1, "default": ".vivado/project", "description": "Relative directory for the XPR and Vivado run folders, inside this project folder. New projects use . for the native Vivado layout." },
     "part": { "type": "string", "minLength": 1 },
     "top": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_$]*$" },
     "sources": { "$ref": "#/definitions/paths" },

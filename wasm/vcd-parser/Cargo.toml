@@ -1,0 +1,22 @@
+[package]
+name = "vivado-vcd-parser"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+publish = false
+description = "Project-owned WASM interface to the rust-vcd parser"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vcd = "=0.7.0"
+serde_json = "=1.0.145"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

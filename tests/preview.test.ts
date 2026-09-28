@@ -9,7 +9,7 @@ import { parseSchematic, schematicTcl } from '../src/build/schematic';
 import { layoutCircuit } from '../src/views/circuitLayout';
 import { previewHtml } from '../src/views/previewHtml';
 
-const wasmFile = path.resolve('node_modules/rust_vcd_wasm/rust_vcd_wasm_bg.wasm');
+const wasmFile = path.resolve('dist/vivado_vcd_parser.wasm');
 const valid = { version: 1, name: 'test', part: 'xc7a35tcsg324-1', top: 'top', sources: ['*.v'] };
 
 test('simulation duration defaults and project precedence are unambiguous', () => {

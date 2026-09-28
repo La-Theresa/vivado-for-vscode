@@ -1,7 +1,9 @@
 import esbuild from 'esbuild';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { buildWasm, checkedNotices, wasmNoticesMarkdown } from './scripts/build-wasm.mjs';
 
+await buildWasm();
 const metadata = new Map();
 const ctx = await esbuild.context({
   entryPoints: ['src/extension.ts'],
@@ -38,11 +40,7 @@ const ctx = await esbuild.context({
           const licenses = (await fs.readdir(directory)).filter(file => /^(license|licence|copying)(\.|$)/i.test(file));
           const supplemental = name === '@nodable/entities' && metadata.version === '3.0.0'
             ? 'third_party/nodable-entities-LICENSE.txt' : undefined;
-          const source = name === 'elkjs'
-            ? `https://github.com/kieler/elkjs/tree/${metadata.version}`
-            : name === 'rust_vcd_wasm' && metadata.version === '0.1.6'
-              ? 'https://github.com/msBRF65/rust_vcd_wasm/tree/1b568d01e823f6ca1e7e11f213f86110ad0f638c'
-              : undefined;
+          const source = name === 'elkjs' ? `https://github.com/kieler/elkjs/tree/${metadata.version}` : undefined;
           notices.push(`\n## ${name} ${metadata.version}\n\nLicense: ${metadata.license || 'See notice below'}\n`);
           if (source) notices.push(`\nUpstream source: ${source}\n`);
           if (name === 'elkjs') notices.push('\nDistributed under EPL-2.0. Corresponding source is available from the upstream link under that license. No local source modifications; bundled and minified by esbuild.\n');
@@ -51,6 +49,10 @@ const ctx = await esbuild.context({
           const missingLicenseText = !licenses.length && !supplemental;
           if (missingLicenseText) notices.push('\nRELEASE BLOCKER: License text is missing from the installed package. Verify upstream notices before redistribution.\n');
           licenseAudit.push({ name, version: metadata.version, license: metadata.license, missingLicenseText });
+        }
+        notices.push(await wasmNoticesMarkdown());
+        for (const component of (await checkedNotices()).components) {
+          licenseAudit.push({ name: component.name, version: component.version, ecosystem: 'Rust', license: component.license, missingLicenseText: false });
         }
         await fs.mkdir('dist', { recursive: true });
         await fs.writeFile('dist/THIRD_PARTY_NOTICES.md', notices.join(''), 'utf8');
@@ -77,7 +79,6 @@ const preview = await esbuild.context({
   logLevel: 'info',
 });
 await fs.mkdir('dist', { recursive: true });
-await fs.copyFile('node_modules/rust_vcd_wasm/rust_vcd_wasm_bg.wasm', 'dist/rust_vcd_wasm_bg.wasm');
 if (process.argv.includes('--watch')) {
   await ctx.watch();
   await preview.watch();

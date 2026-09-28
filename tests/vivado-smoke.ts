@@ -65,8 +65,17 @@ async function main() {
   assert.ok(log.join('').includes('VIVADO_TEST_PASS'));
   assert.ok((await fs.stat(sim.wdb)).size > 0);
   assert.ok((await fs.stat(sim.vcd)).size > 0);
-  const wave = await readWaveform(sim.vcd, path.resolve('node_modules/rust_vcd_wasm/rust_vcd_wasm_bg.wasm'));
-  assert.ok(wave.signals.length > 0);
+  const wave = await readWaveform(sim.vcd, path.resolve('dist/vivado_vcd_parser.wasm'));
+  assert.equal(wave.unit, 'ps');
+  assert.equal(wave.timescale, 1);
+  // XSim emits the last recorded change at 25 ns, not the $finish time.
+  assert.equal(wave.endTime, 25000);
+  const clk = wave.signals.find(signal => signal.name === 'tb.clk')!;
+  assert.ok(clk, 'The real XSim VCD must contain the testbench clock.');
+  // $finish at 30 ns can precede the final clock assignment in that time slot.
+  assert.deepEqual(clk.changes.filter(([time]) => time < 30000),
+    [[0, '0'], [5000, '1'], [10000, '0'], [15000, '1'], [20000, '0'], [25000, '1']]);
+  assert.deepEqual(wave.signals.find(signal => signal.name === 'tb.led')!.changes, [[0, 'xxxx'], [5000, '0011']]);
   console.log('PASS simulation and WDB/VCD');
 
   if (!process.argv.includes('--quick')) {

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import fg from 'fast-glob';
-import { ResolvedProject, portablePath } from '../project/config';
+import { PROJECT_IGNORES, ResolvedProject, portablePath } from '../project/config';
 import iconv from 'iconv-lite';
 import { guardedTcl, syncProjectTcl, tclString } from '../project/sync';
 import { Toolchain } from '../toolchain/detect';
@@ -16,7 +16,7 @@ export interface BuildResult { messages: ToolMessage[]; state: BuildState }
 
 export async function projectFingerprint(project: ResolvedProject, tools: Toolchain): Promise<string> {
   const hash = createHash('sha256').update(JSON.stringify(project.config)).update(tools.root + tools.version);
-  const headers = await fg('**/*.{vh,svh}', { cwd: project.root, absolute: true, ignore: ['**/.vivado/**', '**/node_modules/**', '**/.git/**'] });
+  const headers = await fg('**/*.{vh,svh}', { cwd: project.root, absolute: true, ignore: PROJECT_IGNORES });
   for (const directory of project.includeDirs) headers.push(...await fg('**/*.{vh,svh}', { cwd: directory, absolute: true }));
   for (const file of [...new Set([...Object.values(project.files).flat(), ...headers])].sort()) hash.update(file).update(await fs.readFile(file));
   return hash.digest('hex');
@@ -25,7 +25,7 @@ export async function projectFingerprint(project: ResolvedProject, tools: Toolch
 export async function designFingerprint(project: ResolvedProject, tools: Toolchain): Promise<string> {
   const { part, top, name, defines } = project.config;
   const hash = createHash('sha256').update(JSON.stringify({ part, top, name, defines, includeDirs: project.includeDirs })).update(tools.root + tools.version);
-  const headers = await fg('**/*.{vh,svh}', { cwd: project.root, absolute: true, ignore: ['**/.vivado/**', '**/node_modules/**', '**/.git/**'] });
+  const headers = await fg('**/*.{vh,svh}', { cwd: project.root, absolute: true, ignore: PROJECT_IGNORES });
   for (const directory of project.includeDirs) headers.push(...await fg('**/*.{vh,svh}', { cwd: directory, absolute: true }));
   for (const file of [...new Set([...project.files.sources, ...headers])].sort()) hash.update(file).update(await fs.readFile(file));
   return hash.digest('hex');

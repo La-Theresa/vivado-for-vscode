@@ -2,9 +2,9 @@ import * as vscode from 'vscode';
 import path from 'node:path';
 import { Toolchain } from '../toolchain/detect';
 import { CancelledError } from '../toolchain/process';
-import { parseMessages, pathKey, ToolMessage } from '../toolchain/messageParser';
+import { parseMessages, ToolMessage } from '../toolchain/messageParser';
 import { CONFIG_FILE, isHdl, isHeader, ResolvedProject, resolveProject } from '../project/config';
-import { createShadow, DocumentSnapshot } from './shadow';
+import { createShadow, DocumentSnapshot, ShadowSnapshot } from './shadow';
 import { compileFile, compileProject, elaborate, parallelMap } from './compiler';
 import { clearWorkspaceDiagnostics, publishDiagnostics, publishWorkspaceDiagnostics } from './diagnostics';
 
@@ -13,13 +13,14 @@ export class Linter implements vscode.Disposable {
   readonly crossModule = vscode.languages.createDiagnosticCollection('Vivado Elaboration');
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private controllers = new Map<string, AbortController>();
+  private checkOwners = new Map<string, string>();
   private subscriptions: vscode.Disposable[] = [];
   private stopped = false;
-  private owners = new Map<string, string>();
   private syntaxResults = new Map<string, { root: string; file: string; messages: ToolMessage[] }>();
   private activeChecks = new Map<string, number>();
 
-  constructor(private tools: (root: string) => Toolchain | undefined, private log: (text: string) => void) {
+  constructor(private tools: (root: string) => Toolchain | undefined, private log: (text: string) => void,
+    private owner: (file: string) => string | undefined) {
     this.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument(event => { if (event.contentChanges.length) this.changed(event.document, false); }),
       vscode.workspace.onDidSaveTextDocument(document => this.changed(document, true)),
@@ -37,14 +38,17 @@ export class Linter implements vscode.Disposable {
   }
 
   refresh(): void {
-    void (async () => {
-      this.owners.clear();
-      for (const folder of vscode.workspace.workspaceFolders || []) {
-        const project = await resolveProject(folder.uri.fsPath).catch(() => undefined);
-        if (project) for (const file of Object.values(project.files).flat()) this.owners.set(pathKey(file), folder.uri.fsPath);
-      }
-      if (!this.stopped) for (const document of vscode.workspace.textDocuments) this.changed(document, false);
-    })().catch(error => this.handle(error));
+    if (!this.stopped) for (const document of vscode.workspace.textDocuments) this.changed(document, false);
+  }
+
+  closeProject(root: string): void {
+    this.cancel(`project:${root}`);
+    for (const key of new Set([...this.timers.keys(), ...this.controllers.keys()])) {
+      if (this.checkOwners.get(key) === root) this.cancel(key);
+    }
+    for (const [key, result] of this.syntaxResults) if (result.root === root) this.syntaxResults.delete(key);
+    this.renderSyntax();
+    clearWorkspaceDiagnostics(this.crossModule, root);
   }
 
   private renderSyntax(): void {
@@ -54,7 +58,7 @@ export class Linter implements vscode.Disposable {
   }
 
   private root(document: vscode.TextDocument): string | undefined {
-    return document.uri.scheme === 'file' ? vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath || this.owners.get(pathKey(document.fileName)) : undefined;
+    return document.uri.scheme === 'file' ? this.owner(document.fileName) : undefined;
   }
 
   private cancel(key: string): void {
@@ -62,6 +66,7 @@ export class Linter implements vscode.Disposable {
     this.timers.delete(key);
     this.controllers.get(key)?.abort();
     this.controllers.delete(key);
+    this.checkOwners.delete(key);
   }
 
   private changed(document: vscode.TextDocument, saved: boolean): void {
@@ -78,6 +83,7 @@ export class Linter implements vscode.Disposable {
       this.syntaxResults.delete(open.uri.toString());
       this.renderSyntax();
       if (saved || settings.get<boolean>('lint.onType', true)) {
+        this.checkOwners.set(key, root);
         this.timers.set(key, setTimeout(() => { void this.checkFile(open).catch(error => this.handle(error)); }, saved ? 0 : settings.get<number>('lint.debounceMs', 500)));
       }
     }
@@ -114,6 +120,7 @@ export class Linter implements vscode.Disposable {
     this.cancel(key);
     const controller = new AbortController();
     this.controllers.set(key, controller);
+    this.checkOwners.set(key, root);
     const version = document.version;
     let project: ResolvedProject | undefined;
     try { project = await resolveProject(root); }
@@ -139,7 +146,6 @@ export class Linter implements vscode.Disposable {
   async checkWorkspace(root: string): Promise<void> {
     const project = await resolveProject(root);
     const files = [...new Set([...project.files.sources, ...project.files.simulation])].filter(isHdl);
-    for (const file of files) this.owners.set(pathKey(file), root);
     const concurrency = vscode.workspace.getConfiguration('vivado', vscode.Uri.file(root)).get<number>('lint.maxParallel', 2);
     await parallelMap(files, concurrency, async file => {
       const document = await vscode.workspace.openTextDocument(file);
@@ -152,21 +158,23 @@ export class Linter implements vscode.Disposable {
     if (this.stopped) return;
     const tools = this.tools(root);
     if (!tools) return;
-    let project;
-    try { project = await resolveProject(root); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
-    const files = project.files.sources.filter(isHdl);
-    if (!files.length) return;
     const key = `project:${root}`;
     this.cancel(key);
     const controller = new AbortController();
     this.controllers.set(key, controller);
-    const snapshot = await createShadow(root, files, project.includeDirs, this.snapshots(root));
+    let snapshot: ShadowSnapshot | undefined;
     try {
+      let project;
+      try { project = await resolveProject(root); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+      const files = project.files.sources.filter(isHdl);
+      if (!files.length || controller.signal.aborted || this.stopped) return;
+      snapshot = await createShadow(root, files, project.includeDirs, this.snapshots(root));
+      const shadow = snapshot;
       const cwd = path.join(snapshot.directory, 'elaboration');
       const settings = vscode.workspace.getConfiguration('vivado', vscode.Uri.file(root));
       const options = { cwd, signal: controller.signal, defines: project.config.defines, encoding: settings.get('outputEncoding', 'utf8'), timeoutMs: 60000 };
-      const compiled = await compileProject(tools, files.map(file => ({ path: snapshot.file(file), includeDirs: snapshot.includes(file) })), options);
+      const compiled = await compileProject(tools, files.map(file => ({ path: shadow.file(file), includeDirs: shadow.includes(file) })), options);
       let messages: ToolMessage[] = parseMessages(compiled.output, cwd, snapshot.original);
       if (compiled.code === 0) {
         const result = await elaborate(tools, project.config.top, { ...options, timescale: settings.get('sim.defaultTimescale', '1ns/1ps') });
@@ -179,7 +187,7 @@ export class Linter implements vscode.Disposable {
       }
     } finally {
       if (this.controllers.get(key) === controller) this.controllers.delete(key);
-      await snapshot.dispose();
+      await snapshot?.dispose();
     }
   }
 

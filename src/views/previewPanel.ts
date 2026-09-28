@@ -36,7 +36,7 @@ export class PreviewPanels implements vscode.Disposable {
 
   async waveform(root: string): Promise<void> {
     const state = await readSimulation(root).catch(() => { throw new Error('Run a simulation successfully before opening the waveform preview.'); });
-    const data = await readWaveform(state.vcd, path.join(this.extensionUri.fsPath, 'dist', 'rust_vcd_wasm_bg.wasm'));
+    const data = await readWaveform(state.vcd, path.join(this.extensionUri.fsPath, 'dist', 'vivado_vcd_parser.wasm'));
     data.title = state.top;
     this.show(root, data);
   }
@@ -99,6 +99,10 @@ export class PreviewPanels implements vscode.Disposable {
       }
     });
     panel.onDidDispose(() => { receiver.dispose(); this.panels.delete(key); });
+  }
+
+  closeProject(root: string): void {
+    for (const [key, entry] of [...this.panels]) if (key.startsWith(`${root}:`)) entry.panel.dispose();
   }
 
   dispose(): void { for (const entry of [...this.panels.values()]) entry.panel.dispose(); }

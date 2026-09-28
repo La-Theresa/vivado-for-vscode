@@ -2,7 +2,7 @@
   "name": "vivado-for-vscode",
   "displayName": "Vivado for VS Code",
   "description": "Vivado projects, live Verilog diagnostics, builds, simulation and hardware programming.",
-  "version": "0.3.1",
+  "version": "0.4.1",
   "publisher": "La-Theresa",
   "license": "MIT",
   "repository": {
@@ -30,6 +30,7 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
+    "onStartupFinished",
     "workspaceContains:vivado-project.json",
     "onLanguage:verilog",
     "onLanguage:systemverilog",
@@ -38,7 +39,7 @@
   "extensionKind": [
     "workspace"
   ],
-  "extensionPack": [
+  "extensionDependencies": [
     "mshr-h.veriloghdl"
   ],
   "capabilities": {
@@ -55,7 +56,11 @@
     "compile": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "check": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts",
+    "build:wasm": "node scripts/build-wasm.mjs --force",
+    "verify:wasm": "node scripts/build-wasm.mjs --verify",
+    "licenses:wasm": "node scripts/wasm-notices.mjs",
+    "pretest": "node scripts/build-wasm.mjs",
+    "test": "tsx --test tests/*.test.ts tests/*.test.mjs",
     "test:vivado": "tsx tests/vivado-smoke.ts",
     "test:edges": "tsx tests/vivado-edgecases.ts",
     "test:project": "tsx tests/vivado-project.ts",
@@ -81,6 +86,25 @@
       {
         "command": "vivado.importProject",
         "title": "Vivado: Import XPR Project"
+      },
+      {
+        "command": "vivado.openProject",
+        "title": "Vivado: Open Project",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "vivado.closeProject",
+        "title": "Vivado: Close Project",
+        "icon": "$(close)"
+      },
+      {
+        "command": "vivado.openTclConsole",
+        "title": "Vivado: Open Tcl Console",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "vivado.closeTclConsole",
+        "title": "Vivado: Close Tcl Console"
       },
       {
         "command": "vivado.openGui",
@@ -202,7 +226,7 @@
     "viewsWelcome": [
       {
         "view": "vivado.project",
-        "contents": "[New Project](command:vivado.createProject)\n[Import XPR Project](command:vivado.importProject)",
+        "contents": "[New Project](command:vivado.createProject)\n[Open Project](command:vivado.openProject)\n[Import XPR Project](command:vivado.importProject)",
         "when": "!vivado.hasProject"
       }
     ],
@@ -210,7 +234,7 @@
       "editor/title": [
         {
           "command": "vivado.simulate",
-          "when": "vivado.editorProject && !vivado.running && (resourceLangId == verilog || resourceLangId == systemverilog || resourceLangId == xdc || resourceFilename == vivado-project.json)",
+          "when": "vivado.editorProject && !vivado.running && (resourceLangId == verilog || resourceLangId == systemverilog || resourceLangId == xdc || resourceExtname =~ /\\.(v|sv|vh|svh|xdc)$/i || resourceFilename == vivado-project.json)",
           "group": "navigation@10"
         },
         {
@@ -220,7 +244,7 @@
         },
         {
           "submenu": "vivado.runMenu",
-          "when": "vivado.editorProject && (resourceLangId == verilog || resourceLangId == systemverilog || resourceLangId == xdc || resourceFilename == vivado-project.json)",
+          "when": "vivado.editorProject && (resourceLangId == verilog || resourceLangId == systemverilog || resourceLangId == xdc || resourceExtname =~ /\\.(v|sv|vh|svh|xdc)$/i || resourceFilename == vivado-project.json)",
           "group": "navigation@11"
         }
       ],
@@ -281,9 +305,31 @@
           "command": "vivado.openGui",
           "when": "!vivado.running",
           "group": "4_external@1"
+        },
+        {
+          "command": "vivado.openTclConsole",
+          "when": "!vivado.running",
+          "group": "4_external@2"
+        },
+        {
+          "command": "vivado.closeProject",
+          "group": "5_project@1"
         }
       ],
       "view/title": [
+        {
+          "command": "vivado.openProject",
+          "when": "view == vivado.project"
+        },
+        {
+          "command": "vivado.closeProject",
+          "when": "view == vivado.project && vivado.hasProject"
+        },
+        {
+          "command": "vivado.openTclConsole",
+          "when": "view == vivado.project && vivado.hasProject && !vivado.running",
+          "group": "navigation@2"
+        },
         {
           "command": "vivado.planIo",
           "when": "view == vivado.project"
@@ -339,6 +385,14 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "vivado.closeProject",
+          "when": "view == vivado.project && viewItem == project"
+        },
+        {
+          "command": "vivado.openTclConsole",
+          "when": "view == vivado.project && viewItem == project && !vivado.running"
+        },
         {
           "command": "vivado.setTop",
           "when": "view == vivado.project && viewItem == hdl"
@@ -441,8 +495,7 @@
     "fast-glob": "^3.3.3",
     "fast-xml-parser": "^5.3.0",
     "iconv-lite": "^0.7.0",
-    "lucide": "1.48.0",
-    "rust_vcd_wasm": "0.1.6"
+    "lucide": "1.48.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -451,6 +504,7 @@
     "@vscode/test-electron": "^2.5.0",
     "@vscode/vsce": "^3.6.0",
     "esbuild": "^0.25.0",
+    "smol-toml": "1.9.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }

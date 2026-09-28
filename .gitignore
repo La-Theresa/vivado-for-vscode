@@ -4,6 +4,8 @@ out/
 .vivado/
 .test-work/
 .vscode-test/
+.tools/
+/wasm/vcd-parser/target/
 *.vsix
 *.log
 *.jou

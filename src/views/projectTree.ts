@@ -17,6 +17,7 @@ export class ProjectNode extends vscode.TreeItem {
 }
 
 export class ProjectTree implements vscode.TreeDataProvider<ProjectNode>, vscode.Disposable {
+  constructor(private readonly roots: () => string[]) {}
   private emitter = new vscode.EventEmitter<ProjectNode | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
   refresh(): void { this.emitter.fire(undefined); }
@@ -25,18 +26,16 @@ export class ProjectTree implements vscode.TreeDataProvider<ProjectNode>, vscode
   async getChildren(node?: ProjectNode): Promise<ProjectNode[]> {
     if (!node) {
       const projects: ProjectNode[] = [];
-      for (const folder of vscode.workspace.workspaceFolders || []) {
-        if (folder.uri.scheme !== 'file') continue;
+      for (const root of this.roots()) {
         try {
-          const project = await resolveProject(folder.uri.fsPath);
-          const item = new ProjectNode(project.config.name, folder.uri.fsPath, 'project');
+          const project = await resolveProject(root);
+          const item = new ProjectNode(project.config.name, root, 'project');
           item.description = `${project.config.part} / ${project.config.top}`;
           projects.push(item);
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') projects.push(new ProjectNode(String(error), folder.uri.fsPath, 'error', undefined, path.join(folder.uri.fsPath, CONFIG_FILE)));
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') projects.push(new ProjectNode(String(error), root, 'error', undefined, path.join(root, CONFIG_FILE)));
         }
       }
-      await vscode.commands.executeCommand('setContext', 'vivado.hasProject', projects.length > 0);
       return projects;
     }
     if (node.kind === 'project') return [new ProjectNode('Design Sources', node.root, 'group', 'sources'), new ProjectNode('Constraints', node.root, 'group', 'constraints'), new ProjectNode('Simulation Sources', node.root, 'group', 'simulation')];

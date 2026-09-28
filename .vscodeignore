@@ -7,7 +7,8 @@
 !dist/extension.js
 !dist/preview.js
 !dist/preview.css
-!dist/rust_vcd_wasm_bg.wasm
+!dist/vivado_vcd_parser.wasm
+!dist/wasm-build.json
 !dist/THIRD_PARTY_NOTICES.md
 !resources/vivado.svg
 !resources/project.schema.json

@@ -13,7 +13,7 @@ test('VSIX allowlist includes runtime assets but excludes credentials and arbitr
   const included = [
     'package.json', 'README.md', 'README.zh-CN.md', 'LICENSE',
     'dist/extension.js', 'dist/preview.js', 'dist/preview.css',
-    'dist/rust_vcd_wasm_bg.wasm', 'dist/THIRD_PARTY_NOTICES.md',
+    'dist/vivado_vcd_parser.wasm', 'dist/wasm-build.json', 'dist/THIRD_PARTY_NOTICES.md',
     'resources/vivado.svg', 'resources/project.schema.json',
   ];
   const excluded = [
@@ -23,6 +23,7 @@ test('VSIX allowlist includes runtime assets but excludes credentials and arbitr
     'examples/counter/rtl/top.v', '.vivado/project/top.bit',
     'dist/extension.js.map', 'dist/unexpected.js', 'dist/.env',
     'dist/license-audit.json', 'resources/private.key',
+    'dist/rust_vcd_wasm_bg.wasm', '.tools/rustup/settings.toml', 'wasm/vcd-parser/target/debug/parser.exe',
     'src/extension.ts', 'tests/local.ts', 'scripts/local.mjs',
     ...localNotes, 'local-notes.txt', 'old.vsix',
   ];
@@ -49,6 +50,7 @@ test('Git ignores local credentials, maintainer notes and generated artifacts', 
     '.test-work/profile/Preferences', 'examples/counter/.vivado/project/top.bit',
     'node_modules/example/index.js', 'dist/extension.js', 'old.vsix',
     'vivado.log', 'simulation.vcd', 'simulation.wdb',
+    '.tools/cargo/bin/cargo.exe', 'wasm/vcd-parser/target/release/parser.exe',
     ...localNotes,
   ];
   const ignored = execFileSync('git', ['check-ignore', '--no-index', '--stdin'], {
@@ -57,7 +59,8 @@ test('Git ignores local credentials, maintainer notes and generated artifacts', 
   assert.deepEqual(ignored.sort(), files.sort());
   const shared = ['README.md', 'README.zh-CN.md', 'LICENSE', 'third_party/README.md',
     'third_party/nodable-entities-LICENSE.txt', 'tests/core.test.ts', 'tests/run-extension.ts',
-    'scripts/check-release.mjs', 'resources/tcl/README.md', '.vscode/launch.json'];
+    'scripts/check-release.mjs', 'resources/tcl/README.md', '.vscode/launch.json',
+    'wasm/vcd-parser/Cargo.lock', 'wasm/vcd-parser/src/lib.rs', 'third_party/wasm-notices.json', '.gitattributes'];
   const matches = execFileSync('git', ['check-ignore', '--no-index', '--stdin'], {
     encoding: 'utf8', input: [...files, ...shared].join('\n') + '\n',
   }).trim().split(/\r?\n/);

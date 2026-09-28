@@ -1,0 +1,6 @@
+# Preserve the exact bytes used by the WASM source/notice receipts on Windows.
+/wasm/** text eol=lf
+/scripts/*wasm*.mjs text eol=lf
+/third_party/wasm-notices.json text eol=lf
+/LICENSE text eol=lf
+/.gitattributes text eol=lf

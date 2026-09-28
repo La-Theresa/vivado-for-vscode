@@ -7,7 +7,8 @@ import { TclSession } from '../src/toolchain/tclSession';
 import { resolveProject, writeConfig, validateConfig } from '../src/project/config';
 import { syncProjectTcl, tclString } from '../src/project/sync';
 import { importXpr } from '../src/project/importXpr';
-import { runBatch } from '../src/build/builder';
+import { buildProject, runBatch } from '../src/build/builder';
+import { createProjectFolder, createProjectSourceFolders } from '../src/project/create';
 
 async function main() {
   const tools = await detectToolchain(process.env.VIVADO_PATH);
@@ -67,5 +68,24 @@ async function main() {
   requireSuccess(await runBatch(tools, syncProjectTcl(emptyProject) + '\nclose_project', path.join(empty, '.vivado/scripts/sync.tcl'), { cwd: empty }), 'New empty project');
   await fs.access(emptyProject.xpr);
   console.log(`PASS new empty project: ${root}`);
+  const nativeRoot = await createProjectFolder(root, 'native_project', project.config.part, 'top');
+  const native = await resolveProject(nativeRoot);
+  requireSuccess(await runBatch(tools, syncProjectTcl(native) + '\nclose_project', path.join(nativeRoot, '.vivado/scripts/sync.tcl'), { cwd: nativeRoot }), 'Native project creation');
+  await createProjectSourceFolders(native);
+  await fs.access(path.join(nativeRoot, 'native_project.xpr'));
+  for (const fileset of ['sources_1', 'constrs_1', 'sim_1']) await fs.access(path.join(nativeRoot, 'native_project.srcs', fileset, 'new'));
+  const nativeSession = new TclSession(tools.vivado, nativeRoot);
+  try {
+    await nativeSession.execute(`open_project ${tclString(native.xpr)}`);
+    assert.equal(await nativeSession.execute('get_property NAME [current_project]'), 'native_project');
+    assert.equal(await nativeSession.execute('get_property PART [current_project]'), project.config.part);
+  } finally { await nativeSession.dispose(); }
+  console.log('PASS native Vivado directory layout and reopening the root-level XPR');
+  await fs.cp(path.resolve('examples/counter/rtl'), path.join(nativeRoot, 'native_project.srcs/sources_1/new'), { recursive: true });
+  await fs.cp(path.resolve('examples/counter/constraints'), path.join(nativeRoot, 'native_project.srcs/constrs_1/new'), { recursive: true });
+  const nativeBuild = await buildProject(tools, await resolveProject(nativeRoot), 'bitstream', { cwd: nativeRoot, jobs: 2 });
+  assert.equal(nativeBuild.state.bitstream, path.join(nativeRoot, 'native_project.runs/impl_1/top.bit'));
+  await fs.access(nativeBuild.state.bitstream!);
+  console.log('PASS native project synthesis, implementation and bitstream output path');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

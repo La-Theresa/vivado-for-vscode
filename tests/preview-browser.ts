@@ -83,7 +83,7 @@ async function checkWaveNavigation(page: Page, screenshot: string) {
 async function main() {
   const root = path.resolve('.test-work/preview-browser');
   await fs.mkdir(root, { recursive: true });
-  const wasm = path.resolve('node_modules/rust_vcd_wasm/rust_vcd_wasm_bg.wasm');
+  const wasm = path.resolve('dist/vivado_vcd_parser.wasm');
   const vcdFile = process.argv.find(arg => arg.startsWith('--vcd='))?.slice(6);
   const schematicFile = process.argv.find(arg => arg.startsWith('--schematic='))?.slice(12);
   const ioFile = process.argv.find(arg => arg.startsWith('--io='))?.slice(5);

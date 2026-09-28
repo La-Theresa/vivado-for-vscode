@@ -1,9 +1,16 @@
 import fs from 'node:fs/promises';
 import { listFiles, PackageManager } from '@vscode/vsce';
+import { verifyWasmArtifact, wasmNoticesMarkdown } from './build-wasm.mjs';
 
 const manifest = JSON.parse(await fs.readFile('package.json', 'utf8'));
 const licenses = JSON.parse(await fs.readFile('dist/license-audit.json', 'utf8'));
 const errors = [];
+try {
+  await verifyWasmArtifact();
+  const notices = await fs.readFile('dist/THIRD_PARTY_NOTICES.md', 'utf8');
+  if (!notices.endsWith(await wasmNoticesMarkdown())) errors.push('Packaged Rust/WASM notices do not match the verified sources.');
+} catch (error) { errors.push(error.message); }
+if (manifest.dependencies?.rust_vcd_wasm) errors.push('The unverified prebuilt rust_vcd_wasm dependency must not be shipped.');
 
 if (manifest.publisher === 'local-vivado' || !manifest.publisher) {
   errors.push('Replace the local-vivado placeholder with a Marketplace publisher ID you control.');
@@ -20,7 +27,7 @@ for (const dependency of licenses) {
 const expected = new Set([
   'package.json', 'README.md', 'README.zh-CN.md', 'LICENSE',
   'dist/extension.js', 'dist/preview.js', 'dist/preview.css',
-  'dist/rust_vcd_wasm_bg.wasm', 'dist/THIRD_PARTY_NOTICES.md',
+  'dist/vivado_vcd_parser.wasm', 'dist/wasm-build.json', 'dist/THIRD_PARTY_NOTICES.md',
   'resources/vivado.svg', 'resources/project.schema.json',
 ]);
 const files = await listFiles({ cwd: process.cwd(), packageManager: PackageManager.None });
