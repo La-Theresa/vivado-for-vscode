@@ -4,7 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createProjectFolder } from '../src/project/create';
 import { tclString } from '../src/project/sync';
-import { portablePath } from '../src/project/config';
+import { FileGroup, portablePath, readConfig, resolveProject } from '../src/project/config';
+import { readWaveform } from '../src/sim/waveform';
 
 async function waitFor(predicate: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 30000;
@@ -94,6 +95,30 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('vivado.previewWaveform', rootUri);
   assert.equal(waveTabs().length, 1, 'Preview commands reuse an existing panel.');
   console.log('PASS Extension Host: project duration overrides workspace all; finite simulation and reusable right-side waveform tab');
+  const originalTab = waveTabs()[0].tab;
+  const testbench = path.join(root, 'sim/forever.v');
+  const updatedTestbench = '`timescale 1ns/1ps\nmodule forever_tb; reg clk = 0; always #7 clk = ~clk; endmodule\n';
+  await fs.writeFile(testbench, updatedTestbench);
+  await vscode.commands.executeCommand('vivado.simulate', rootUri);
+  const secondState = JSON.parse(await fs.readFile(path.join(root, '.vivado/sim/last-run.json'), 'utf8'));
+  assert.notEqual(secondState.directory, state.directory);
+  const secondWave = await readWaveform(secondState.vcd, path.join(extension.extensionPath, 'dist/vivado_vcd_parser.wasm'));
+  assert.deepEqual(secondWave.signals.find(signal => signal.name === 'forever_tb.clk')!.changes.slice(0, 3), [[0, '0'], [7000, '1'], [14000, '0']]);
+  assert.equal(waveTabs()[0].tab, originalTab);
+  await waitFor(() => vscode.window.terminals.filter(terminal => terminal.name === 'Vivado: forever_tb').length === 1, 'one current simulation terminal');
+  await fs.writeFile(testbench, 'module forever_tb; invalid !!!; endmodule\n');
+  assert.equal(await vscode.commands.executeCommand('vivado.simulate', rootUri), undefined);
+  await assert.rejects(fs.access(path.join(root, '.vivado/sim/last-run.json')), { code: 'ENOENT' });
+  assert.equal(waveTabs().length, 0, 'A failed run removes the previous waveform title.');
+  await vscode.commands.executeCommand('vivado.clearSimulationCache', rootUri);
+  await assert.rejects(fs.access(path.join(root, '.vivado/sim')), { code: 'ENOENT' });
+  await waitFor(() => !vscode.window.terminals.some(terminal => terminal.name === 'Vivado: forever_tb'), 'simulation output cleared');
+  assert.ok(api.projectRoots().includes(root));
+  await fs.writeFile(testbench, updatedTestbench);
+  await vscode.commands.executeCommand('vivado.simulate', rootUri);
+  await waitFor(() => waveTabs().length === 1, 'waveform after cache clear');
+  assert.equal(waveTabs()[0].tab, originalTab, 'Clearing cache keeps the reusable preview panel.');
+  console.log('PASS Extension Host: changed source, failed run, clear cache and successful rerun without closing the project');
   await vscode.commands.executeCommand('vivado.synthesize', rootUri);
   const schematic = await fs.readFile(path.join(root, '.vivado/reports/schematic.xml'), 'utf8');
   assert.match(schematic, /<cell /);
@@ -126,6 +151,24 @@ export async function run(): Promise<void> {
   const nativeRoot = await createProjectFolder(root, 'native_console', config.part, 'top');
   await vscode.commands.executeCommand('vivado.openProject', vscode.Uri.file(nativeRoot));
   assert.ok(api.projectRoots().includes(nativeRoot));
+  for (const [group, fileset, filename, moduleName] of [
+    ['sources', 'sources_1', 'created.v', 'created'],
+    ['simulation', 'sim_1', 'tb_created.sv', 'tb_created'],
+    ['constraints', 'constrs_1', 'pins.xdc', ''],
+  ]) {
+    const createdFile = path.join(nativeRoot, `native_console.srcs/${fileset}/new/${filename}`);
+    const created = await vscode.commands.executeCommand<vscode.Uri>('vivado.createFile', vscode.Uri.file(nativeRoot), group, vscode.Uri.file(createdFile));
+    assert.equal(created?.fsPath, createdFile);
+    const text = await fs.readFile(createdFile, 'utf8');
+    assert.match(text, /Project Name: native_console/);
+    if (moduleName) assert.match(text, new RegExp(`module ${moduleName}\\b`));
+    assert.ok((await resolveProject(nativeRoot)).files[group as FileGroup].some(file => path.resolve(file) === createdFile));
+    assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, createdFile);
+  }
+  assert.equal((await readConfig(nativeRoot)).top, 'created');
+  assert.equal((await readConfig(nativeRoot)).simulationTop, 'tb_created');
+  await fs.access(path.join(nativeRoot, 'native_console.xpr'));
+  console.log('PASS Extension Host: create source, simulation and constraints directly through plugin commands, initialize XPR and open editors');
   const terminal = await vscode.commands.executeCommand<vscode.Terminal>('vivado.openTclConsole', vscode.Uri.file(nativeRoot));
   assert.ok(terminal);
   assert.equal(await vscode.commands.executeCommand('vivado.openTclConsole', vscode.Uri.file(nativeRoot)), terminal);

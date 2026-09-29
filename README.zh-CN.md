@@ -61,7 +61,7 @@ code --install-extension ./vivado-for-vscode-0.4.1.vsix
 1. 安装 VSIX，并打开可信的本地工程文件夹。
 2. 将 `vivado.installPath` 设置为你的 Vivado 版本目录，例如 `C:/Xilinx/Vivado/2018.3`。未配置时依次检查 `XILINX_VIVADO`、PATH 和常见安装目录。
 3. 执行 **Vivado: New Project**，输入项目名、选择父目录、已安装器件和顶层模块；插件会创建新的项目子目录，不覆盖已有目录。也可用 **Vivado: Import XPR Project** 导入，或用 **Vivado: Open Project** 选择已有的 `vivado-project.json`。
-4. 从资源管理器或 Vivado 侧栏添加文件。在侧栏源文件的上下文菜单中设置设计顶层或仿真顶层。
+4. 在 Vivado 侧栏点击 **New Source / Simulation / Constraints File**，或源文件分组旁的新建文件图标，选择 `.v`、`.sv` 或 `.xdc` 文件名。插件自动创建、加入工程、填写 Vivado 风格注释和对应模块名，并打开编辑器；已有文件使用 **Add Existing File to Project**。也可在源文件右键菜单中设置设计顶层或仿真顶层。
 5. 点击 HDL 编辑器右上角的运行按钮执行仿真；旁边的菜单提供综合、实现、生成比特流和预览。运行时按钮变为停止。
 
 状态栏显示检测到的 Vivado 版本；诊断进入 Problems（问题）面板；工具输出进入 Vivado Output（输出）通道，仿真输出还会显示在终端中。进度通知和状态栏支持取消操作。
@@ -120,13 +120,17 @@ XPR 导入保留文件引用、器件、顶层、包含路径和宏定义，不�
 - **跨模块检查：** 保存或空闲两秒后编译设计源码并展开设计顶层，默认 timescale 为 `1ns/1ps`。**Check Project** 先独立检查所有设计、仿真源文件，再进行展开。
 - **构建：** **Synthesize**、**Implement**、**Generate Bitstream** 和 **Build All** 先同步文件集，再启动独立批处理进程。内容指纹和 Vivado 运行状态决定是否重置综合；重新实现前重置实现运行。失败或取消会使当前比特流状态失效。
 - **报告：** **Show Reports** 显示资源利用率、WNS/TNS/WHS/THS 和 DRC。完整文本保留在 `.vivado/reports`；这些是最近一次已完成报告的快照，不是实时结果。
-- **仿真：** 编译配置或发现的 testbench，使用 `glbl.v` 和已安装的 Xilinx 仿真库。默认运行 `1 us`；成功后生成 WDB、VCD，并在编辑器右侧打开内置波形。
-- **波形预览：** **Preview Waveform to the Side** 重新打开最近成功的仿真结果，支持信号筛选、显隐、缩放、时间游标及二进制、十六进制、无符号显示，保留信号别名和 X/Z 状态。波形区域内，**Ctrl + 滚轮向上/向下** 以指针为中心放大/缩小（1x 至 32x），**Shift + 滚轮向下/向上** 向右/向左滚动。普通滚轮保持原有行为，工具栏按钮仍可用。**Open WDB in Waveform Viewer** 使用原生 Vivado 查看器，**Open VCD** 保留外部编辑器工作流。
+- **新建文件：** 侧栏可直接创建 Verilog/SystemVerilog 设计源文件、仿真文件和 XDC 约束。注释包含项目、器件、模块、创建日期及已检测到的工具版本；HDL 自动填写 `timescale`、`module` 和 `endmodule`，仿真模板包含基础时钟及以 `$finish` 结束的有限激励占位。首个设计文件自动设为设计顶层；未配置仿真顶层时，首个仿真文件自动设为仿真顶层。不会覆盖已有文件。
+- **仿真：** 编译配置或发现的 testbench，使用 `glbl.v` 和已安装的 Xilinx 仿真库。每次使用新的编译目录，并清除旧的当前结果标记、波形视图和输出终端。默认运行 `1 us`；成功后生成 WDB、VCD，并在编辑器右侧打开内置波形。失败或取消后不会将上次波形继续显示为当前结果。
+- **清除仿真缓存：** 项目右键菜单、侧栏菜单和 Run 菜单中的 **Vivado: Clear Simulation Cache** 删除 `.vivado/sim`（包括先前的 WDB、VCD），并清空仿真输出、诊断及预览，不删除源码、XPR 或构建结果。运行中需要先等待或取消；若外部 WDB 查看器占用文件，应先关闭查看器。清理后可直接重新仿真，无需关闭、重开项目。
+- **波形预览：** **Preview Waveform to the Side** 重新打开当前成功的仿真结果，有效期截至下一次仿真尝试或清理缓存。支持信号筛选、显隐、缩放、时间游标及二进制、十六进制、无符号显示，保留信号别名和 X/Z 状态。波形区域内，**Ctrl + 滚轮向上/向下** 以指针为中心放大/缩小（1x 至 32x），**Shift + 滚轮向下/向上** 向右/向左滚动。普通滚轮保持原有行为，工具栏按钮仍可用。**Open WDB in Waveform Viewer** 使用原生 Vivado 查看器，**Open VCD** 保留外部编辑器工作流。
 - **综合网表预览：** 综合成功后导出真实 primitive、端口和网络，并打开 **Preview Synthesized Schematic to the Side**。使用美式 ANSI 符号表示常见逻辑门、缓冲器、反相器、触发器、锁存器和多路选择器；LUT 根据实际 `INIT` 真值表识别，支持部分输入反相。复杂 LUT 和其他 primitive 保留带标签的功能块。支持平移、缩放、单元搜索和关联网络高亮。这不是原生 RTL 原理图或器件布局图；修改源码后需要重新综合。
 - **I/O 规划：** 综合后，点击原理图端口、表格工具按钮或 **Vivado: I/O Planning**，在同一右侧编辑器组打开表格。引脚和 I/O 标准从实际器件查询；保存的约束供后续构建使用。
 - **硬件编程：** **Program Device** 检查比特流是否与当前工程匹配，连接服务器，选择目标和器件，并在编程前请求确认。找不到目标时提供重试；实际编程需要开发板。
 - **GUI 回退：** **Open Project in Vivado GUI** 先同步生成的工程。请关闭 GUI 工程后再从 VS Code 构建，避免两个应用同时修改它。持久工程设置应保存在 `vivado-project.json`。
 - **Tcl Console：** **Vivado: Open Tcl Console** 打开真正可交互的 Vivado 终端，并载入同步后的 XPR。入口位于侧栏终端图标、项目右键菜单和 Run 菜单，重复执行会聚焦已有终端。可以输入 `get_files` 或 `get_property PART [current_project]` 等命令；它与只读 Output、仿真输出终端相互独立。自动操作前会提示关闭 Console 以释放工程。持久设置应写入 `vivado-project.json`，自动同步可能覆盖手动 Tcl 修改；**Close Tcl Console** 只关闭控制台，不关闭项目。
+
+如果 **Program Device** 留有硬件连接，打开 Tcl Console 时会将连接从后台会话移交到终端，恢复服务器、已打开的目标和所选器件，不会重新烧录。此后输入 `disconnect_hw_server` 即可断开该连接。没有已有连接时不会自动连接，也不会接管独立 Vivado GUI 中的连接。重连失败会在终端中显示错误，但仍可继续输入 Tcl 命令。
 
 构建、仿真和编程会在保存已修改工作区文件前询问；语法检查不保存文件。HDL 工具和约束可能执行代码，因此必须信任工作区。
 

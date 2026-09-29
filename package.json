@@ -67,6 +67,8 @@
     "test:extension": "npm run compile && tsx tests/run-extension.ts",
     "test:preview": "npm run compile && tsx tests/preview-browser.ts",
     "test:io": "tsx tests/vivado-io.ts",
+    "test:hardware": "tsx tests/vivado-hardware.ts",
+    "test:simulation": "tsx tests/vivado-simulation.ts",
     "package": "npm run check && vsce package --no-dependencies --githubBranch master",
     "package:files": "vsce ls --no-dependencies",
     "check:release": "npm run check && npm test && npm run compile && node scripts/check-release.mjs",
@@ -124,8 +126,13 @@
         "title": "Vivado: Set as Top Module"
       },
       {
+        "command": "vivado.createFile",
+        "title": "Vivado: New Source / Simulation / Constraints File",
+        "icon": "$(new-file)"
+      },
+      {
         "command": "vivado.addFile",
-        "title": "Vivado: Add File to Project",
+        "title": "Vivado: Add Existing File to Project",
         "icon": "$(add)"
       },
       {
@@ -169,6 +176,11 @@
         "command": "vivado.simulate",
         "title": "Vivado: Run Simulation",
         "icon": "$(play)"
+      },
+      {
+        "command": "vivado.clearSimulationCache",
+        "title": "Vivado: Clear Simulation Cache",
+        "icon": "$(clear-all)"
       },
       {
         "command": "vivado.openWaveform",
@@ -280,6 +292,11 @@
           "group": "1_run@6"
         },
         {
+          "command": "vivado.clearSimulationCache",
+          "when": "!vivado.running",
+          "group": "1_run@7"
+        },
+        {
           "command": "vivado.previewWaveform",
           "group": "2_preview@1"
         },
@@ -317,6 +334,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "vivado.createFile",
+          "when": "view == vivado.project && vivado.hasProject && !vivado.running",
+          "group": "navigation@1"
+        },
         {
           "command": "vivado.openProject",
           "when": "view == vivado.project"
@@ -372,6 +394,10 @@
           "when": "view == vivado.project"
         },
         {
+          "command": "vivado.clearSimulationCache",
+          "when": "view == vivado.project && vivado.hasProject && !vivado.running"
+        },
+        {
           "command": "vivado.program",
           "when": "view == vivado.project"
         },
@@ -385,6 +411,20 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "vivado.createFile",
+          "when": "view == vivado.project && viewItem == group && !vivado.running",
+          "group": "inline@1"
+        },
+        {
+          "command": "vivado.createFile",
+          "when": "view == vivado.project && viewItem =~ /^(project|group)$/ && !vivado.running",
+          "group": "1_files@1"
+        },
+        {
+          "command": "vivado.clearSimulationCache",
+          "when": "view == vivado.project && viewItem == project && !vivado.running"
+        },
         {
           "command": "vivado.closeProject",
           "when": "view == vivado.project && viewItem == project"
@@ -404,7 +444,7 @@
         {
           "command": "vivado.addFile",
           "when": "view == vivado.project && viewItem == group",
-          "group": "inline"
+          "group": "inline@2"
         },
         {
           "command": "vivado.selectPart",

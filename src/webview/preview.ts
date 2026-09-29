@@ -298,9 +298,15 @@ async function circuitPreview(data: CircuitData, current: number) {
 }
 
 window.addEventListener('message', async event => {
-  if (event.data?.type !== 'data') return;
+  if (event.data?.type !== 'data' && event.data?.type !== 'status') return;
   const current = ++generation;
   release(); release = () => {};
+  if (event.data.type === 'status') {
+    const message = element('p', 'message', String(event.data.message || 'No current simulation results.'));
+    message.setAttribute('role', 'status');
+    app.replaceChildren(message);
+    return;
+  }
   try {
     const data: PreviewData = event.data.data;
     if (data.kind === 'waveform') wavePreview(data);

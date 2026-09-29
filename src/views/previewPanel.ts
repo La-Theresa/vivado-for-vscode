@@ -8,8 +8,11 @@ import { parseSchematic } from '../build/schematic';
 import { IoData, PreviewData } from './previewModel';
 import { previewHtml } from './previewHtml';
 
+interface PreviewEntry { panel: vscode.WebviewPanel; data?: PreviewData; message?: string }
+
 export class PreviewPanels implements vscode.Disposable {
-  private panels = new Map<string, { panel: vscode.WebviewPanel; data: PreviewData }>();
+  private panels = new Map<string, PreviewEntry>();
+  private waveformRequests = new Map<string, symbol>();
   constructor(private readonly extensionUri: vscode.Uri, private readonly ioActions: {
     open(root: string, port?: string): Promise<void>;
     reload(root: string, dirty: boolean): Promise<IoData | undefined>;
@@ -26,7 +29,7 @@ export class PreviewPanels implements vscode.Disposable {
 
   checkIoProject(root: string, project?: { part: string; top: string }): void {
     const existing = this.panels.get(`${root}:ioPlanning`);
-    if (!existing || existing.data.kind !== 'ioPlanning') return;
+    if (!existing || existing.data?.kind !== 'ioPlanning') return;
     if (project && existing.data.part.toLowerCase() === project.part.toLowerCase() && existing.data.title === project.top) return;
     existing.data.stale = 'Project part or top changed. Run Synthesize, then Reload I/O Planning.';
     void existing.panel.webview.postMessage({ type: 'ioStale', error: existing.data.stale });
@@ -34,11 +37,29 @@ export class PreviewPanels implements vscode.Disposable {
 
   io(root: string, data: IoData): void { this.show(root, data); }
 
+  resetWaveform(root: string, message: string): void {
+    this.waveformRequests.delete(root);
+    const entry = this.panels.get(`${root}:waveform`);
+    if (!entry) return;
+    entry.data = undefined;
+    entry.message = message;
+    entry.panel.title = 'Waveform';
+    void entry.panel.webview.postMessage({ type: 'status', message });
+  }
+
   async waveform(root: string): Promise<void> {
-    const state = await readSimulation(root).catch(() => { throw new Error('Run a simulation successfully before opening the waveform preview.'); });
-    const data = await readWaveform(state.vcd, path.join(this.extensionUri.fsPath, 'dist', 'vivado_vcd_parser.wasm'));
-    data.title = state.top;
-    this.show(root, data);
+    const request = Symbol();
+    this.waveformRequests.set(root, request);
+    try {
+      const state = await readSimulation(root).catch(() => { throw new Error('Run a simulation successfully before opening the waveform preview.'); });
+      const data = await readWaveform(state.vcd, path.join(this.extensionUri.fsPath, 'dist', 'vivado_vcd_parser.wasm'));
+      data.title = state.top;
+      if (this.waveformRequests.get(root) === request) this.show(root, data);
+    } catch (error) {
+      if (this.waveformRequests.get(root) === request) throw error;
+    } finally {
+      if (this.waveformRequests.get(root) === request) this.waveformRequests.delete(root);
+    }
   }
 
   async schematic(root: string, stale: boolean): Promise<void> {
@@ -55,6 +76,7 @@ export class PreviewPanels implements vscode.Disposable {
     const key = `${root}:${data.kind}`, existing = this.panels.get(key);
     if (existing) {
       existing.data = data;
+      existing.message = undefined;
       existing.panel.title = title;
       existing.panel.reveal(existing.panel.viewColumn ?? vscode.ViewColumn.Beside, data.kind !== 'ioPlanning');
       void existing.panel.webview.postMessage({ type: 'data', data });
@@ -64,7 +86,7 @@ export class PreviewPanels implements vscode.Disposable {
     const side = [...this.panels.entries()].find(([key]) => key.startsWith(`${root}:`))?.[1].panel.viewColumn ?? vscode.ViewColumn.Beside;
     const panel = vscode.window.createWebviewPanel(`vivado.${data.kind}`, title,
       { viewColumn: side, preserveFocus: data.kind !== 'ioPlanning' }, { enableScripts: true, localResourceRoots: [assets], retainContextWhenHidden: true });
-    const entry = { panel, data };
+    const entry: PreviewEntry = { panel, data };
     this.panels.set(key, entry);
     panel.webview.html = previewHtml(
       panel.webview.asWebviewUri(vscode.Uri.joinPath(assets, 'preview.js')).toString(),
@@ -73,12 +95,12 @@ export class PreviewPanels implements vscode.Disposable {
     );
     let busy = false;
     const receiver = panel.webview.onDidReceiveMessage(async message => {
-      if (message?.type === 'ready') void panel.webview.postMessage({ type: 'data', data: entry.data });
-      if (message?.type === 'external') {
-        void vscode.commands.executeCommand(data.kind === 'waveform' ? 'vivado.openWaveform' : 'vivado.openGui', vscode.Uri.file(root));
+      if (message?.type === 'ready') void panel.webview.postMessage(entry.data ? { type: 'data', data: entry.data } : { type: 'status', message: entry.message });
+      if (message?.type === 'external' && entry.data) {
+        void vscode.commands.executeCommand(entry.data.kind === 'waveform' ? 'vivado.openWaveform' : 'vivado.openGui', vscode.Uri.file(root));
       }
       if (busy) return;
-      if (message?.type === 'planIo' && entry.data.kind === 'schematic') {
+      if (message?.type === 'planIo' && entry.data?.kind === 'schematic') {
         const port = message.port === undefined ? undefined : entry.data.nodes.find(node => node.port && node.name === message.port)?.name;
         if (message.port !== undefined && !port) return;
         busy = true;
@@ -86,7 +108,7 @@ export class PreviewPanels implements vscode.Disposable {
         catch (error) { void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); }
         finally { busy = false; }
       }
-      if ((message?.type === 'ioSave' || message?.type === 'ioReload') && entry.data.kind === 'ioPlanning') {
+      if ((message?.type === 'ioSave' || message?.type === 'ioReload') && entry.data?.kind === 'ioPlanning') {
         busy = true;
         try {
           if (message.type === 'ioSave' && entry.data.stale) throw new Error(entry.data.stale);
@@ -102,8 +124,9 @@ export class PreviewPanels implements vscode.Disposable {
   }
 
   closeProject(root: string): void {
+    this.waveformRequests.delete(root);
     for (const [key, entry] of [...this.panels]) if (key.startsWith(`${root}:`)) entry.panel.dispose();
   }
 
-  dispose(): void { for (const entry of [...this.panels.values()]) entry.panel.dispose(); }
+  dispose(): void { this.waveformRequests.clear(); for (const entry of [...this.panels.values()]) entry.panel.dispose(); }
 }

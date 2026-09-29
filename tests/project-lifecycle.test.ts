@@ -98,6 +98,7 @@ test('Tcl Console is interactive and safely launches Windows batch paths', async
   const startup = consoleStartupTcl(project);
   assert.match(startup, /open_project/);
   assert.doesNotMatch(startup, /\bexit\b|@@BEGIN|@@END/);
+  assert.doesNotMatch(startup, /open_hw|connect_hw_server/);
   const windows = consoleShell('C:/tools with spaces/Vivado/bin/vivado.bat', 'C:/projects with spaces/console.tcl', 'win32');
   assert.match(windows.shellPath, /cmd\.exe$/i);
   assert.match(windows.shellArgs as string, /\/d \/s \/v:off \/c ""C:\/tools with spaces/);
@@ -113,7 +114,7 @@ test('language support is required and project/console commands are reachable', 
   assert.ok(manifest.extensionDependencies.includes('mshr-h.veriloghdl'));
   assert.ok(manifest.activationEvents.includes('onStartupFinished'));
   const menus = manifest.contributes.menus;
-  for (const command of ['openProject', 'closeProject', 'openTclConsole', 'closeTclConsole']) {
+  for (const command of ['openProject', 'closeProject', 'openTclConsole', 'closeTclConsole', 'createFile', 'clearSimulationCache']) {
     assert.ok(manifest.contributes.commands.some((item: { command: string }) => item.command === `vivado.${command}`));
   }
   const run = menus['editor/title'].find((item: { command?: string }) => item.command === 'vivado.simulate');
@@ -121,4 +122,7 @@ test('language support is required and project/console commands are reachable', 
   assert.match(run.when, /resourceExtname =~/);
   assert.match(run.when, /vh\|svh/);
   assert.ok(menus['view/item/context'].some((item: { command: string }) => item.command === 'vivado.closeProject'));
+  assert.ok(menus['view/item/context'].some((item: { command: string; when: string }) => item.command === 'vivado.createFile' && item.when.includes('group')));
+  assert.ok(menus['view/title'].some((item: { command: string }) => item.command === 'vivado.createFile'));
+  assert.ok(menus['vivado.runMenu'].some((item: { command: string }) => item.command === 'vivado.clearSimulationCache'));
 });

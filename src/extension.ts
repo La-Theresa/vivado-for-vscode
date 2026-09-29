@@ -5,8 +5,9 @@ import os from 'node:os';
 import { detectToolchain, Toolchain } from './toolchain/detect';
 import { CancelledError, requireSuccess, spawnTool } from './toolchain/process';
 import { TclSession } from './toolchain/tclSession';
-import { CONFIG_FILE, discoverModules, portablePath, readConfig, resolveProject, writeConfig } from './project/config';
+import { CONFIG_FILE, FileGroup, discoverModules, portablePath, readConfig, resolveProject, writeConfig } from './project/config';
 import { createProjectFolder, createProjectSourceFolders } from './project/create';
+import { createProjectFile, newFileDirectory } from './project/files';
 import { isInside, ProjectIndex } from './project/projects';
 import { consoleShell, consoleStartupTcl } from './toolchain/console';
 import { importXpr } from './project/importXpr';
@@ -15,8 +16,8 @@ import { syncProjectTcl } from './project/sync';
 import { Linter } from './lint/linter';
 import { clearWorkspaceDiagnostics, publishWorkspaceDiagnostics } from './lint/diagnostics';
 import { BuildStage, buildProject, projectFingerprint, readBuildState, runBatch } from './build/builder';
-import { openWaveformTcl, readSimulation, simulate, simulationTops } from './sim/simulator';
-import { hardwareDevices, hardwareTargets, NoHardwareError, programDevice } from './hw/hardware';
+import { clearSimulationCache, openWaveformTcl, readSimulation, simulate, simulationTops } from './sim/simulator';
+import { hardwareDevices, hardwareTargets, NoHardwareError, programDevice, readHardwareConnection } from './hw/hardware';
 import { ProjectNode, ProjectTree } from './views/projectTree';
 import { showReports } from './views/reportsPanel';
 import { PreviewPanels } from './views/previewPanel';
@@ -36,6 +37,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const running = new Map<string, AbortController>();
   const operationDone = new Map<string, Promise<void>>();
   const consoles = new Map<string, vscode.Terminal>();
+  const simulationTerminals = new Map<string, vscode.Terminal>();
   const externalWatchers = new Map<string, vscode.Disposable>();
   const closing = new Set<string>();
   let projectRefresh: Promise<void> | undefined;
@@ -66,6 +68,7 @@ export async function activate(context: vscode.ExtensionContext) {
       for (const controller of running.values()) controller.abort();
       for (const session of sessions.values()) void session.dispose();
       for (const terminal of consoles.values()) terminal.dispose();
+      for (const terminal of simulationTerminals.values()) terminal.dispose();
       for (const watcher of externalWatchers.values()) watcher.dispose();
     } });
 
@@ -136,6 +139,7 @@ export async function activate(context: vscode.ExtensionContext) {
       linter.closeProject(root);
       consoles.get(root)?.dispose();
       consoles.delete(root);
+      closeSimulationTerminal(root);
       externalWatchers.get(root)?.dispose();
       externalWatchers.delete(root);
       previews.closeProject(root);
@@ -186,6 +190,11 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   }
 
+  function closeSimulationTerminal(root: string): void {
+    simulationTerminals.get(root)?.dispose();
+    simulationTerminals.delete(root);
+  }
+
   async function closeProject(root: string): Promise<void> {
     closing.add(root);
     try {
@@ -193,6 +202,7 @@ export async function activate(context: vscode.ExtensionContext) {
       await operationDone.get(root);
       linter.closeProject(root);
       await closeConsole(root);
+      closeSimulationTerminal(root);
       await sessions.get(root)?.dispose();
       sessions.delete(root);
       previews.closeProject(root);
@@ -428,10 +438,38 @@ export async function activate(context: vscode.ExtensionContext) {
     await writeConfig(root, config);
     tree.refresh();
   });
+  const fileGroups = [{ label: 'Design Sources', group: 'sources' }, { label: 'Constraints', group: 'constraints' }, { label: 'Simulation Sources', group: 'simulation' }] as const;
+  command('createFile', async (value, requestedGroup?: FileGroup, destination?: vscode.Uri) => {
+    const root = await rootFor(value);
+    if (running.has(root)) throw new Error('Wait for the current Vivado operation to finish before creating a file.');
+    await saveProjectFiles(root);
+    const group = requestedGroup ?? (value instanceof ProjectNode ? value.group : undefined)
+      ?? (await vscode.window.showQuickPick(fileGroups, { title: 'New project file' }))?.group;
+    if (!group) return;
+    if (!fileGroups.some(choice => choice.group === group)) throw new Error('Invalid project file category.');
+    const project = await resolveProject(root);
+    const name = group === 'sources' ? `${project.config.top}.v` : group === 'simulation' ? `${project.config.simulationTop || `tb_${project.config.top}`}.v` : `${project.config.name}.xdc`;
+    const file = destination ?? await vscode.window.showSaveDialog({
+      title: `New ${fileGroups.find(choice => choice.group === group)!.label} File`,
+      defaultUri: vscode.Uri.file(path.join(newFileDirectory(project, group), name)),
+      filters: group === 'constraints' ? { 'Xilinx Constraints': ['xdc'] } : { Verilog: ['v'], SystemVerilog: ['sv'] },
+      saveLabel: 'Create File',
+    });
+    if (!file) return;
+    if (!(file instanceof vscode.Uri) || file.scheme !== 'file') throw new Error('Select a local file inside the project.');
+    if (!projects.has(root) || closing.has(root)) throw new CancelledError();
+    if (running.has(root)) throw new Error('Wait for the current Vivado operation to finish before creating a file.');
+    if (isInside(path.join(project.projectDir, `${project.config.name}.srcs`), file.fsPath)
+      && !await fs.access(project.xpr).then(() => true, () => false)) await synchronize(root);
+    if (!projects.has(root) || closing.has(root)) throw new CancelledError();
+    const created = await createProjectFile(root, group, file.fsPath, tools.get(root)?.version);
+    await refreshProjects();
+    await vscode.window.showTextDocument(vscode.Uri.file(created));
+    return vscode.Uri.file(created);
+  });
   command('addFile', async value => {
     const root = await rootFor(value);
-    const choices = [{ label: 'Design Sources', group: 'sources' }, { label: 'Constraints', group: 'constraints' }, { label: 'Simulation Sources', group: 'simulation' }] as const;
-    const group = value instanceof ProjectNode && value.group ? value.group : (await vscode.window.showQuickPick(choices, { title: 'File category' }))?.group;
+    const group = value instanceof ProjectNode && value.group ? value.group : (await vscode.window.showQuickPick(fileGroups, { title: 'File category' }))?.group;
     if (!group) return;
     const files = value instanceof vscode.Uri ? [value] : await vscode.window.showOpenDialog({ canSelectMany: true, defaultUri: vscode.Uri.file(root) });
     if (!files?.length) return;
@@ -483,15 +521,23 @@ export async function activate(context: vscode.ExtensionContext) {
     await saveProjectFiles(root);
     await synchronize(root);
     const project = await resolveProject(root), tool = await getTools(root);
-    const script = path.join(root, '.vivado', 'scripts', 'console.tcl');
-    await fs.writeFile(script, consoleStartupTcl(project), 'utf8');
-    if (!projects.has(root) || closing.has(root)) throw new CancelledError();
-    const terminal = vscode.window.createTerminal({
-      name: `Vivado Tcl: ${project.config.name}`, cwd: root, ...consoleShell(tool.vivado, script),
+    return operation(root, 'Open Tcl Console', async signal => {
+      const session = sessions.get(root);
+      const hardware = session && await readHardwareConnection(session, signal);
+      const script = path.join(root, '.vivado', 'scripts', 'console.tcl');
+      const shell = consoleShell(tool.vivado, script);
+      await fs.writeFile(script, consoleStartupTcl(project, hardware), 'utf8');
+      if (signal.aborted || !projects.has(root) || closing.has(root)) throw new CancelledError();
+      // Release the background client's target before the interactive process reconnects.
+      if (hardware) await session!.execute('close_hw', signal, 60000);
+      if (signal.aborted || !projects.has(root) || closing.has(root)) throw new CancelledError();
+      const terminal = vscode.window.createTerminal({
+        name: `Vivado Tcl: ${project.config.name}`, cwd: root, ...shell,
+      });
+      consoles.set(root, terminal);
+      terminal.show();
+      return terminal;
     });
-    consoles.set(root, terminal);
-    terminal.show();
-    return terminal;
   });
   command('closeTclConsole', async value => closeConsole(await rootFor(value)));
 
@@ -516,28 +562,47 @@ export async function activate(context: vscode.ExtensionContext) {
     const top = tops.length === 1 ? tops[0] : await vscode.window.showQuickPick(tops, { title: 'Simulation top' });
     if (!top) return;
     const runTime = simulationRunTime(project.config, settings.get<string>('sim.runTime'));
-    clearWorkspaceDiagnostics(simDiagnostics, root);
-    const write = new vscode.EventEmitter<string>();
-    let ready = false, pending = '';
-    let cancelSimulation = () => {};
-    const terminal = vscode.window.createTerminal({ name: `Vivado: ${top}`, pty: {
-      onDidWrite: write.event, open: () => { ready = true; write.fire(pending); pending = ''; },
-      close: () => { cancelSimulation(); write.dispose(); },
-    } });
-    terminal.show(true);
-    context.subscriptions.push(terminal, write);
-    await operation(root, 'Vivado simulation', async signal => {
-      log(`Simulation top: ${top}; duration: ${runTime}${project.config.simulationRunTime ? ' (vivado-project.json)' : ' (VS Code setting/default)'}\n`);
+    return operation(root, 'Vivado simulation', async signal => {
+      closeSimulationTerminal(root);
+      clearWorkspaceDiagnostics(simDiagnostics, root);
+      previews.resetWaveform(root, 'Running simulation...');
+      const write = new vscode.EventEmitter<string>();
+      let ready = false, pending = '';
       const owner = running.get(root);
-      cancelSimulation = () => owner?.abort();
-      return simulate(tool, project, top, {
-      cwd: root, signal, runTime, timescale: settings.get('sim.defaultTimescale', '1ns/1ps'), encoding: settings.get('outputEncoding', 'utf8'),
-      onOutput: text => { log(text); const formatted = text.replace(/\r?\n/g, '\r\n'); if (ready) write.fire(formatted); else pending += formatted; },
-      onMessages: messages => publishWorkspaceDiagnostics(simDiagnostics, root, messages, path.join(root, CONFIG_FILE)),
-      });
-    }).finally(() => { cancelSimulation = () => {}; });
-    void vscode.window.showInformationMessage('Simulation complete. WDB and VCD are available.');
-    if (projects.has(root) && !closing.has(root)) await autoPreview(() => previews.waveform(root));
+      let cancelSimulation = () => owner?.abort();
+      const terminal = vscode.window.createTerminal({ name: `Vivado: ${top}`, pty: {
+        onDidWrite: write.event, open: () => { ready = true; write.fire(pending); pending = ''; },
+        close: () => { cancelSimulation(); write.dispose(); },
+      } });
+      simulationTerminals.set(root, terminal);
+      terminal.show(true);
+      log(`Simulation top: ${top}; duration: ${runTime}${project.config.simulationRunTime ? ' (vivado-project.json)' : ' (VS Code setting/default)'}\n`);
+      try {
+        const state = await simulate(tool, project, top, {
+          cwd: root, signal, runTime, timescale: settings.get('sim.defaultTimescale', '1ns/1ps'), encoding: settings.get('outputEncoding', 'utf8'),
+          onOutput: text => { log(text); const formatted = text.replace(/\r?\n/g, '\r\n'); if (ready) write.fire(formatted); else pending = (pending + formatted).slice(-8 * 1024 * 1024); },
+          onMessages: messages => publishWorkspaceDiagnostics(simDiagnostics, root, messages, path.join(root, CONFIG_FILE)),
+        });
+        void vscode.window.showInformationMessage('Simulation complete. WDB and VCD are available.');
+        if (projects.has(root) && !closing.has(root)) await autoPreview(() => previews.waveform(root));
+        return state;
+      } catch (error) {
+        previews.resetWaveform(root, error instanceof CancelledError ? 'Simulation cancelled. No current results.' : 'Simulation failed. No current results.');
+        throw error;
+      } finally { cancelSimulation = () => {}; }
+    });
+  });
+  command('clearSimulationCache', async value => {
+    const root = await rootFor(value);
+    await operation(root, 'Clear simulation cache', async signal => {
+      if (signal.aborted) throw new CancelledError();
+      previews.resetWaveform(root, 'No current simulation results.');
+      await clearSimulationCache(root);
+      closeSimulationTerminal(root);
+      clearWorkspaceDiagnostics(simDiagnostics, root);
+      previews.resetWaveform(root, 'Simulation cache cleared.');
+    });
+    void vscode.window.showInformationMessage('Simulation cache and previous waveforms cleared.');
   });
   command('openWaveform', async value => {
     const root = await rootFor(value), state = await readSimulation(root), tool = await getTools(root);
@@ -591,7 +656,10 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(watcher, watcher.onDidChange(projectsChanged), watcher.onDidCreate(projectsChanged), watcher.onDidDelete(projectsChanged),
     watcher.onDidChange(ioConfigChanged), watcher.onDidCreate(ioConfigChanged), watcher.onDidDelete(ioConfigChanged),
     vscode.workspace.onDidChangeWorkspaceFolders(projectsChanged),
-    vscode.window.onDidCloseTerminal(terminal => { for (const [root, current] of consoles) if (current === terminal) consoles.delete(root); }),
+    vscode.window.onDidCloseTerminal(terminal => {
+      for (const [root, current] of consoles) if (current === terminal) consoles.delete(root);
+      for (const [root, current] of simulationTerminals) if (current === terminal) simulationTerminals.delete(root);
+    }),
     vscode.window.onDidChangeActiveTextEditor(() => { if (!running.size) idleStatus(); void updateEditorContext(); }),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('vivado.installPath') || event.affectsConfiguration('vivado.outputEncoding')) {

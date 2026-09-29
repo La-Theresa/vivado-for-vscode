@@ -4,11 +4,35 @@ import { ResolvedProject, discoverModules, isHdl, portablePath } from '../projec
 import { tclString } from '../project/sync';
 import { Toolchain } from '../toolchain/detect';
 import { compileProject, compileFile, elaborate } from '../lint/compiler';
-import { ProcessOptions, requireSuccess, runProcess } from '../toolchain/process';
+import { CancelledError, ProcessOptions, requireSuccess, runProcess } from '../toolchain/process';
 import { ToolMessage, parseMessages } from '../toolchain/messageParser';
 import { normalizeSimulationRunTime } from './runtime';
 
 export interface SimulationState { directory: string; snapshot: string; wdb: string; vcd: string; top: string }
+
+async function simulationCacheDirectory(root: string): Promise<string> {
+  let directory = await fs.realpath(root);
+  // Never follow a redirected cache path when creating or recursively removing runs.
+  for (const segment of ['.vivado', 'sim']) {
+    directory = path.join(directory, segment);
+    const stat = await fs.lstat(directory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+      return undefined;
+    });
+    if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) throw new Error(`Simulation cache must be a real directory inside the project: ${directory}`);
+  }
+  return directory;
+}
+
+export async function clearSimulationCache(root: string): Promise<void> {
+  const directory = await simulationCacheDirectory(root);
+  try {
+    await fs.rm(path.join(directory, 'last-run.json'), { force: true });
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  } catch (error) {
+    throw new Error(`Could not clear simulation cache. Close any external waveform viewer using this project's WDB and retry. ${String(error)}`);
+  }
+}
 
 export function openWaveformTcl(wdb: string): string {
   return `open_wave_database ${tclString(portablePath(wdb))}\nadd_wave [get_objects -r /*]\n`;
@@ -28,8 +52,11 @@ export async function simulationTops(project: ResolvedProject): Promise<string[]
 export async function simulate(tools: Toolchain, project: ResolvedProject, top: string,
   options: ProcessOptions & { runTime: string; timescale: string; onMessages?: (messages: ToolMessage[]) => void }): Promise<SimulationState> {
   const run = simulationRunCommand(options.runTime);
-  const simRoot = path.join(project.root, '.vivado', 'sim');
+  if (options.signal?.aborted) throw new CancelledError();
+  const simRoot = await simulationCacheDirectory(project.root);
   await fs.mkdir(simRoot, { recursive: true });
+  // A failed or cancelled attempt must not expose the previous waveform as current.
+  await fs.rm(path.join(simRoot, 'last-run.json'), { force: true });
   const directory = await fs.mkdtemp(path.join(simRoot, 'run-'));
   const state = { directory, snapshot: 'vscode_sim', wdb: path.join(directory, 'wave.wdb'), vcd: path.join(directory, 'wave.vcd'), top };
   const files = [...new Set([...project.files.sources, ...project.files.simulation])].filter(isHdl);
@@ -46,6 +73,7 @@ export async function simulate(tools: Toolchain, project: ResolvedProject, top: 
     if (!/^@@VSCODE_SIM_DONE@@\s*$/m.test(result.output) || /^\s*(?:Fatal:|ERROR:)/m.test(result.output)) throw new Error('Simulation did not complete successfully. See Vivado Output.');
     await fs.access(state.wdb);
     await fs.access(state.vcd);
+    if (options.signal?.aborted) throw new CancelledError();
     await fs.writeFile(path.join(simRoot, 'last-run.json'), JSON.stringify(state, null, 2), 'utf8');
     return state;
   } finally { options.onMessages?.(parseMessages(log, directory)); }

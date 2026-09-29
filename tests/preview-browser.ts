@@ -163,7 +163,24 @@ b1111 "
           const checkbox = page.getByRole('checkbox').first();
           await checkbox.uncheck();
           assert.equal(await page.getByRole('checkbox').first().isChecked(), false);
-          await page.getByRole('checkbox').first().check();
+          await page.getByRole('searchbox').fill(data.signals[0].name);
+          await page.evaluate(() => window.postMessage({ type: 'status', message: 'Simulation cache cleared.' }, '*'));
+          await expect(page.getByRole('status')).toHaveText('Simulation cache cleared.');
+          await expect(image).toHaveCount(0);
+          await expect(page.locator('.signal-row')).toHaveCount(0);
+          await page.screenshot({ path: path.join(root, `waveform-cleared-${size.width}.png`) });
+          const replacement = { ...data, title: 'rerun', source: 'fresh-run/wave.vcd',
+            signals: data.signals.slice(0, 1).map(signal => ({ ...signal, name: 'rerun.new_signal' })) };
+          await page.evaluate(next => window.postMessage({ type: 'data', data: next }, '*'), replacement);
+          await expect(image).toBeVisible();
+          await expect(page.locator('.signal-row')).toHaveCount(1);
+          await expect(page.locator('.signal-row')).toContainText('rerun.new_signal');
+          await expect(page.getByRole('searchbox')).toHaveValue('');
+          await expect(page.getByRole('combobox', { name: 'Value radix' })).toHaveValue('hex');
+          await expect(page.getByRole('checkbox').first()).toBeChecked();
+          await expect(page.locator('.cursor-value')).toHaveText(/^Cursor 0 /);
+          await page.evaluate(next => window.postMessage({ type: 'data', data: next }, '*'), data);
+          await expect(page.locator('.signal-row')).toHaveCount(data.signals.length);
         } else if (data.kind === 'schematic') {
           assert.equal(await page.locator('.circuit-node').count(), data.nodes.length);
           assert.ok(await page.locator('.circuit-edge').count() > 0);
