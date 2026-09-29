@@ -6,7 +6,7 @@ A local-first VS Code extension for Verilog/SystemVerilog development with an in
 
 Manage projects, inspect diagnostics, synthesize and implement designs, simulate with waveform previews, inspect synthesized schematics, plan I/O assignments, and program a connected FPGA without leaving the editor.
 
-**Preview status:** version `0.4.1` is intended for local evaluation. It has not been fully debugged and is not recommended for industrial use. Development progress may depend on the author's course schedule; see SUSTech's digital logic course labs for reference.
+**Preview status:** version `0.4.2` is intended for local evaluation. It has not been fully debugged and is not recommended for industrial use. Development progress may depend on the author's course schedule; see SUSTech's digital logic course labs for reference.
 
 ## Contents
 
@@ -44,10 +44,10 @@ npm test
 npm run package
 ```
 
-In VS Code, run **Extensions: Install from VSIX...** and select `vivado-for-vscode-0.4.1.vsix`, or run:
+In VS Code, run **Extensions: Install from VSIX...** and select `vivado-for-vscode-0.4.2.vsix`, or run:
 
 ```sh
-code --install-extension ./vivado-for-vscode-0.4.1.vsix
+code --install-extension ./vivado-for-vscode-0.4.2.vsix
 ```
 
 `mshr-h.veriloghdl` is a required dependency for Verilog, SystemVerilog and XDC highlighting. Install and enable it before using this extension; offline installations need its VSIX too. After upgrading, run **Developer: Reload Window**. This project does not ship that extension's code or the Vivado installer.

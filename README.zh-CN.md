@@ -6,7 +6,7 @@
 
 在编辑器中完成工程管理、实时诊断、综合、实现、仿真与波形预览、综合网表预览、I/O 引脚规划，以及对已连接 FPGA 的编程。
 
-**预览状态：** 当前 `0.4.1` 用于本地试用，未经过完整调试，只建议非工业级开发者使用。当前开发进度可能由开发者课程进度决定，可参考 SUSTech 的 digital logic 课程实验。
+**预览状态：** 当前 `0.4.2` 用于本地试用，未经过完整调试，只建议非工业级开发者使用。当前开发进度可能由开发者课程进度决定，可参考 SUSTech 的 digital logic 课程实验。
 
 ## 目录
 
@@ -44,10 +44,10 @@ npm test
 npm run package
 ```
 
-在 VS Code 命令面板执行 **Extensions: Install from VSIX...**（从 VSIX 安装），选择 `vivado-for-vscode-0.4.1.vsix`。也可以执行：
+在 VS Code 命令面板执行 **Extensions: Install from VSIX...**（从 VSIX 安装），选择 `vivado-for-vscode-0.4.2.vsix`。也可以执行：
 
 ```sh
-code --install-extension ./vivado-for-vscode-0.4.1.vsix
+code --install-extension ./vivado-for-vscode-0.4.2.vsix
 ```
 
 `mshr-h.veriloghdl` 是提供 Verilog、SystemVerilog 和 XDC 高亮的必需依赖，请先安装并启用；离线安装时也需要它的 VSIX。升级后执行 **Developer: Reload Window**（重新加载窗口）。本项目不捆绑该扩展的代码，也不提供 Vivado 安装程序。

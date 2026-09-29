@@ -2,7 +2,7 @@
   "name": "vivado-for-vscode",
   "displayName": "Vivado for VS Code",
   "description": "Vivado projects, live Verilog diagnostics, builds, simulation and hardware programming.",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publisher": "La-Theresa",
   "license": "MIT",
   "repository": {
